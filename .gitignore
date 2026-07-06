@@ -1,0 +1,7 @@
+# Compiled App and Zip
+dist/
+
+# macOS temp files
+.DS_Store
+*.swp
+*~.nib
