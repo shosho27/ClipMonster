@@ -1,5 +1,8 @@
 import Cocoa
 import SwiftUI
+import ServiceManagement
+import Vision
+import CryptoKit
 
 @main
 struct ClipMonsterApp: App {
@@ -14,6 +17,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var popover: NSPopover!
     var clipboardMonitor = ClipboardMonitor()
     var globalMonitor: Any?
+    var localMonitor: Any?
+    /// Last non-ClipMonster frontmost app (for auto-paste).
+    var lastFrontmostApp: NSRunningApplication?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -22,31 +28,77 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(togglePopover(_:))
         }
         
-        let contentView = ContentView(monitor: clipboardMonitor)
+        let contentView = ContentView(monitor: clipboardMonitor, appDelegate: self)
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 500)
+        popover.contentSize = NSSize(width: 360, height: 540)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: contentView)
         
-        setupGlobalShortcut(shortcut: clipboardMonitor.globalShortcut)
+        setupShortcutMonitors(shortcut: clipboardMonitor.globalShortcut)
+        DragTempCleanup.run()
         
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShortcutChanged"), object: nil, queue: .main) { [weak self] _ in
             guard let self = self else { return }
-            self.setupGlobalShortcut(shortcut: self.clipboardMonitor.globalShortcut)
+            self.setupShortcutMonitors(shortcut: self.clipboardMonitor.globalShortcut)
+        }
+        
+        // Track previous app for auto-paste
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            if app.bundleIdentifier != Bundle.main.bundleIdentifier {
+                self?.lastFrontmostApp = app
+            }
+        }
+        
+        // Keep the transient popover open for the duration of an external drag
+        NotificationCenter.default.addObserver(forName: DragSession.began, object: nil, queue: .main) { [weak self] _ in
+            self?.popover.behavior = .applicationDefined
+        }
+        NotificationCenter.default.addObserver(forName: DragSession.ended, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.popover.behavior = .transient
+            if self.popover.isShown {
+                self.popover.performClose(nil)
+            }
+        }
+        
+        NotificationCenter.default.addObserver(forName: .clipMonsterClosePopover, object: nil, queue: .main) { [weak self] _ in
+            self?.popover.performClose(nil)
         }
     }
     
-    func setupGlobalShortcut(shortcut: CustomShortcut) {
+    func setupShortcutMonitors(shortcut: CustomShortcut) {
         if let currentMonitor = globalMonitor {
             NSEvent.removeMonitor(currentMonitor)
             globalMonitor = nil
         }
+        if let currentMonitor = localMonitor {
+            NSEvent.removeMonitor(currentMonitor)
+            localMonitor = nil
+        }
         
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        let handler: (NSEvent) -> Void = { [weak self] event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if modifiers.rawValue == shortcut.modifiers && event.keyCode == shortcut.keyCode {
                 DispatchQueue.main.async { self?.togglePopover(nil) }
             }
+        }
+        
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            handler(event)
+        }
+        // Local monitor so the shortcut also works when ClipMonster is frontmost
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if modifiers.rawValue == shortcut.modifiers && event.keyCode == shortcut.keyCode {
+                DispatchQueue.main.async { self.togglePopover(nil) }
+                return nil
+            }
+            return event
         }
     }
     
@@ -55,11 +107,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if popover.isShown {
                 popover.performClose(sender)
             } else {
+                // Snapshot previous app before we take focus
+                if let front = NSWorkspace.shared.frontmostApplication,
+                   front.bundleIdentifier != Bundle.main.bundleIdentifier {
+                    lastFrontmostApp = front
+                }
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
     }
+    
+    /// Copy is already done; restore previous app and simulate Cmd+V.
+    func autoPasteIntoPreviousApp() {
+        popover.performClose(nil)
+        let target = lastFrontmostApp
+        target?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            Self.simulateCommandV()
+        }
+    }
+    
+    static func simulateCommandV() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let keyV: CGKeyCode = 9 // kVK_ANSI_V
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: false) else { return }
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+}
+
+extension Notification.Name {
+    static let clipMonsterClosePopover = Notification.Name("ClipMonsterClosePopover")
 }
 
 // MARK: - Models
@@ -87,6 +169,203 @@ struct ClipboardItem: Identifiable {
     let image: NSImage?
     let fileURL: URL?
     let timestamp: Date
+    /// OCR text extracted from image (Vision).
+    var ocrText: String?
+    /// Stable content hash for image de-dupe.
+    var imageHash: String?
+    /// True while Vision OCR is running for this item.
+    var isOCRing: Bool = false
+    
+    var searchableText: String {
+        var parts: [String] = []
+        if let text = text { parts.append(text) }
+        if let ocrText = ocrText { parts.append(ocrText) }
+        if let fileURL = fileURL {
+            parts.append(fileURL.lastPathComponent)
+            parts.append(fileURL.path)
+        }
+        if image != nil { parts.append("image") }
+        return parts.joined(separator: " ")
+    }
+    
+    func matches(query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return true }
+        return searchableText.localizedCaseInsensitiveContains(q)
+    }
+    
+    /// Build an `NSItemProvider` suitable for dragging into Finder, design apps, Terminal, etc.
+    func makeDragItemProvider() -> NSItemProvider {
+        if let image = image {
+            return Self.imageItemProvider(image)
+        }
+        if let fileURL = fileURL {
+            return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
+        }
+        if let text = text {
+            return NSItemProvider(object: text as NSString)
+        }
+        return NSItemProvider()
+    }
+    
+    private static let dragDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd-HHmmss"
+        return f
+    }()
+    
+    private static func imageItemProvider(_ image: NSImage) -> NSItemProvider {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return NSItemProvider(object: image)
+        }
+        
+        // Human-readable temp name for Terminal path drops
+        let stamp = dragDateFormatter.string(from: Date())
+        let fileName = "clipboard-\(stamp).png"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        // Avoid clobbering if two drags land in the same second
+        let finalURL: URL
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            finalURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("clipboard-\(stamp)-\(UUID().uuidString.prefix(6)).png")
+        } else {
+            finalURL = tempURL
+        }
+        
+        do {
+            try pngData.write(to: finalURL)
+        } catch {
+            return NSItemProvider(object: image)
+        }
+        
+        let provider = NSItemProvider(contentsOf: finalURL) ?? NSItemProvider()
+        provider.suggestedName = fileName
+        
+        provider.registerDataRepresentation(forTypeIdentifier: "public.png", visibility: .all) { completion in
+            completion(pngData, nil)
+            return nil
+        }
+        provider.registerObject(image, visibility: .all)
+        provider.registerObject(finalURL as NSURL, visibility: .all)
+        
+        return provider
+    }
+    
+    static func hashImage(_ image: NSImage) -> String? {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        let digest = SHA256.hash(data: png)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// MARK: - OCR (Apple Vision)
+enum ImageOCR {
+    static func recognizeText(in image: NSImage, completion: @escaping (String?) -> Void) {
+        guard let cgImage = image.cgImageForOCR else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        
+        let request = VNRecognizeTextRequest { request, error in
+            guard error == nil,
+                  let observations = request.results as? [VNRecognizedTextObservation] else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+            let joined = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                completion(joined.isEmpty ? nil : joined)
+            }
+        }
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        if #available(macOS 13.0, *) {
+            request.revision = VNRecognizeTextRequestRevision3
+        }
+        
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try handler.perform([request])
+            } catch {
+                DispatchQueue.main.async { completion(nil) }
+            }
+        }
+    }
+}
+
+extension NSImage {
+    var cgImageForOCR: CGImage? {
+        var rect = CGRect(origin: .zero, size: size)
+        if let cg = cgImage(forProposedRect: &rect, context: nil, hints: nil) {
+            return cg
+        }
+        guard let tiff = tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.cgImage
+    }
+}
+
+// MARK: - Drag session & temp cleanup
+enum DragSession {
+    static let began = Notification.Name("ClipMonsterDragBegan")
+    static let ended = Notification.Name("ClipMonsterDragEnded")
+    
+    private static var active = false
+    
+    static func begin() {
+        guard !active else { return }
+        active = true
+        NotificationCenter.default.post(name: began, object: nil)
+        
+        var globalMonitor: Any?
+        var localMonitor: Any?
+        
+        let end: () -> Void = {
+            guard active else { return }
+            active = false
+            if let g = globalMonitor {
+                NSEvent.removeMonitor(g)
+                globalMonitor = nil
+            }
+            if let l = localMonitor {
+                NSEvent.removeMonitor(l)
+                localMonitor = nil
+            }
+            NotificationCenter.default.post(name: ended, object: nil)
+        }
+        
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { _ in
+            DispatchQueue.main.async { end() }
+        }
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            DispatchQueue.main.async { end() }
+            return event
+        }
+    }
+}
+
+enum DragTempCleanup {
+    /// Remove old ClipMonster / clipboard drag PNGs from the temp directory.
+    static func run() {
+        let tmp = FileManager.default.temporaryDirectory
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: tmp.path)) ?? []
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        for name in names {
+            let isOurs = name.hasPrefix("ClipMonster-") || name.hasPrefix("clipboard-")
+            guard isOurs, name.hasSuffix(".png") else { continue }
+            let url = tmp.appendingPathComponent(name)
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let modified = attrs[.modificationDate] as? Date,
+               modified < cutoff {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
 }
 
 struct PersistedItem: Codable {
@@ -94,6 +373,84 @@ struct PersistedItem: Codable {
     let type: String
     let content: String
     let timestamp: Date
+    var ocrText: String?
+    var imageHash: String?
+}
+
+// MARK: - Launch at Login
+enum LaunchAtLogin {
+    static let label = "com.sashornock.ClipMonster"
+    
+    private static var launchAgentURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+    
+    static var isEnabled: Bool {
+        if #available(macOS 13.0, *), SMAppService.mainApp.status == .enabled {
+            return true
+        }
+        return FileManager.default.fileExists(atPath: launchAgentURL.path)
+    }
+    
+    static func setEnabled(_ enabled: Bool) throws {
+        if #available(macOS 13.0, *) {
+            do {
+                try setLoginItem(enabled)
+                removeLaunchAgent()
+                return
+            } catch {
+                if !enabled {
+                    removeLaunchAgent()
+                    if !isEnabled { return }
+                }
+            }
+        }
+        try setLaunchAgent(enabled)
+    }
+    
+    @available(macOS 13.0, *)
+    private static func setLoginItem(_ enabled: Bool) throws {
+        let service = SMAppService.mainApp
+        if enabled {
+            guard service.status != .enabled else { return }
+            try service.register()
+        } else {
+            guard service.status != .notRegistered else { return }
+            try service.unregister()
+        }
+    }
+    
+    private static func setLaunchAgent(_ enabled: Bool) throws {
+        if enabled {
+            let appPath = Bundle.main.bundlePath
+            guard appPath.hasSuffix(".app") else {
+                throw NSError(
+                    domain: "ClipMonster",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Run the ClipMonster.app bundle so login launch can be configured."]
+                )
+            }
+            
+            let agentsDir = launchAgentURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: agentsDir, withIntermediateDirectories: true)
+            
+            let plist: [String: Any] = [
+                "Label": label,
+                "ProgramArguments": ["/usr/bin/open", appPath],
+                "RunAtLoad": true,
+                "LimitLoadToSessionType": "Aqua"
+            ]
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: launchAgentURL, options: .atomic)
+        } else {
+            removeLaunchAgent()
+        }
+    }
+    
+    private static func removeLaunchAgent() {
+        try? FileManager.default.removeItem(at: launchAgentURL)
+    }
 }
 
 // MARK: - Clipboard Monitor
@@ -101,7 +458,6 @@ class ClipboardMonitor: ObservableObject {
     @Published var history: [ClipboardItem] = []
     @Published var selectedItems: Set<UUID> = []
     
-    // Preferences
     @Published var historyLimit: Int = UserDefaults.standard.integer(forKey: "historyLimit") == 0 ? 50 : UserDefaults.standard.integer(forKey: "historyLimit") {
         didSet { UserDefaults.standard.set(historyLimit, forKey: "historyLimit") }
     }
@@ -111,6 +467,19 @@ class ClipboardMonitor: ObservableObject {
             UserDefaults.standard.set(keepThroughReboot, forKey: "keepThroughReboot")
             if keepThroughReboot { saveAllToDisk() } else { deleteDiskData() }
         }
+    }
+    
+    @Published var launchAtLogin: Bool = LaunchAtLogin.isEnabled
+    @Published var launchAtLoginError: String? = nil
+    
+    /// After choosing an item, paste into the previous app (requires Accessibility).
+    @Published var autoPaste: Bool = UserDefaults.standard.object(forKey: "autoPaste") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoPaste, forKey: "autoPaste") }
+    }
+    
+    /// Run Vision OCR automatically when a new image is captured.
+    @Published var autoOCR: Bool = UserDefaults.standard.bool(forKey: "autoOCR") {
+        didSet { UserDefaults.standard.set(autoOCR, forKey: "autoOCR") }
     }
     
     @Published var storagePath: String = UserDefaults.standard.string(forKey: "storagePath") ?? "" {
@@ -135,13 +504,29 @@ class ClipboardMonitor: ObservableObject {
            let decoded = try? JSONDecoder().decode(CustomShortcut.self, from: data) {
             self.globalShortcut = decoded
         } else {
-            // Default to Fn + V
             self.globalShortcut = CustomShortcut(keyCode: 9, modifiers: NSEvent.ModifierFlags.function.rawValue, keyString: "V")
         }
         
         lastChangeCount = pasteboard.changeCount
         if keepThroughReboot { loadFromDisk() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.checkForChanges() }
+    }
+    
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLogin.setEnabled(enabled)
+            launchAtLogin = LaunchAtLogin.isEnabled
+            launchAtLoginError = nil
+        } catch {
+            launchAtLogin = LaunchAtLogin.isEnabled
+            launchAtLoginError = error.localizedDescription
+        }
+    }
+    
+    func filteredHistory(query: String) -> [ClipboardItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return history }
+        return history.filter { $0.matches(query: q) }
     }
     
     func isSensitive(_ pasteboard: NSPasteboard) -> Bool {
@@ -167,29 +552,56 @@ class ClipboardMonitor: ObservableObject {
         let newID = UUID()
         
         if let imgArray = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage], let firstImg = imgArray.first {
-            newItem = ClipboardItem(id: newID, text: nil, image: firstImg, fileURL: nil, timestamp: Date())
+            let hash = ClipboardItem.hashImage(firstImg)
+            newItem = ClipboardItem(
+                id: newID,
+                text: nil,
+                image: firstImg,
+                fileURL: nil,
+                timestamp: Date(),
+                ocrText: nil,
+                imageHash: hash
+            )
         } else if let urlArray = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], let firstURL = urlArray.first {
             newItem = ClipboardItem(id: newID, text: nil, image: nil, fileURL: firstURL, timestamp: Date())
         } else if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { newItem = ClipboardItem(id: newID, text: trimmed, image: nil, fileURL: nil, timestamp: Date()) }
+            if !trimmed.isEmpty {
+                newItem = ClipboardItem(id: newID, text: trimmed, image: nil, fileURL: nil, timestamp: Date())
+            }
         }
         
         if let item = newItem {
             DispatchQueue.main.async {
-                if let text = item.text { self.history.removeAll { $0.text == text } }
-                else if let fileURL = item.fileURL { self.history.removeAll { $0.fileURL == fileURL } }
-                
-                self.history.insert(item, at: 0)
-                while self.history.count > self.historyLimit {
-                    let removed = self.history.removeLast()
-                    self.deleteDiskItem(removed.id)
-                }
-                if self.keepThroughReboot {
-                    self.saveItemToDisk(item)
-                    self.saveIndex()
-                }
+                self.insertItem(item)
             }
+        }
+    }
+    
+    private func insertItem(_ item: ClipboardItem) {
+        // De-dupe: text, file URL, or image content hash
+        if let text = item.text {
+            history.removeAll { $0.text == text }
+        } else if let fileURL = item.fileURL {
+            history.removeAll { $0.fileURL == fileURL }
+        } else if let hash = item.imageHash {
+            let removed = history.filter { $0.imageHash == hash }
+            for r in removed { deleteDiskItem(r.id) }
+            history.removeAll { $0.imageHash == hash }
+        }
+        
+        history.insert(item, at: 0)
+        while history.count > historyLimit {
+            let removed = history.removeLast()
+            deleteDiskItem(removed.id)
+        }
+        if keepThroughReboot {
+            saveItemToDisk(item)
+            saveIndex()
+        }
+        
+        if autoOCR, item.image != nil {
+            runOCR(for: item.id)
         }
     }
     
@@ -198,6 +610,15 @@ class ClipboardMonitor: ObservableObject {
         if let text = item.text { pasteboard.setString(text, forType: .string) }
         else if let image = item.image { pasteboard.writeObjects([image]) }
         else if let url = item.fileURL { pasteboard.writeObjects([url as NSURL]) }
+        lastChangeCount = pasteboard.changeCount
+    }
+    
+    /// Copy OCR text (or plain text) for an item to the pasteboard.
+    func copyOCRText(for item: ClipboardItem) {
+        let value = item.ocrText ?? item.text
+        guard let value = value, !value.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
         lastChangeCount = pasteboard.changeCount
     }
     
@@ -240,6 +661,38 @@ class ClipboardMonitor: ObservableObject {
         deleteDiskData()
     }
     
+    // MARK: - OCR
+    
+    func runOCR(for id: UUID) {
+        guard let index = history.firstIndex(where: { $0.id == id }),
+              let image = history[index].image else { return }
+        if history[index].isOCRing { return }
+        if history[index].ocrText != nil { return }
+        
+        history[index].isOCRing = true
+        ImageOCR.recognizeText(in: image) { [weak self] text in
+            guard let self = self,
+                  let idx = self.history.firstIndex(where: { $0.id == id }) else { return }
+            self.history[idx].isOCRing = false
+            self.history[idx].ocrText = text
+            if self.keepThroughReboot { self.saveIndex() }
+        }
+    }
+    
+    func forceRunOCR(for id: UUID) {
+        guard let index = history.firstIndex(where: { $0.id == id }),
+              let image = history[index].image else { return }
+        history[index].isOCRing = true
+        history[index].ocrText = nil
+        ImageOCR.recognizeText(in: image) { [weak self] text in
+            guard let self = self,
+                  let idx = self.history.firstIndex(where: { $0.id == id }) else { return }
+            self.history[idx].isOCRing = false
+            self.history[idx].ocrText = text
+            if self.keepThroughReboot { self.saveIndex() }
+        }
+    }
+    
     // MARK: - Disk Persistence
     private var dataURL: URL {
         if storagePath.isEmpty {
@@ -278,9 +731,20 @@ class ClipboardMonitor: ObservableObject {
     private func saveIndex() {
         guard isDriveAvailable() else { return }
         let persisted = history.map { item -> PersistedItem in
-            if let t = item.text { return PersistedItem(id: item.id, type: "text", content: t, timestamp: item.timestamp) }
-            else if let u = item.fileURL { return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp) }
-            else { return PersistedItem(id: item.id, type: "image", content: "\(item.id.uuidString).png", timestamp: item.timestamp) }
+            if let t = item.text {
+                return PersistedItem(id: item.id, type: "text", content: t, timestamp: item.timestamp, ocrText: nil, imageHash: nil)
+            } else if let u = item.fileURL {
+                return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp, ocrText: nil, imageHash: nil)
+            } else {
+                return PersistedItem(
+                    id: item.id,
+                    type: "image",
+                    content: "\(item.id.uuidString).png",
+                    timestamp: item.timestamp,
+                    ocrText: item.ocrText,
+                    imageHash: item.imageHash
+                )
+            }
         }
         if let data = try? JSONEncoder().encode(persisted) { try? data.write(to: indexURL) }
     }
@@ -290,11 +754,22 @@ class ClipboardMonitor: ObservableObject {
         if let data = try? Data(contentsOf: indexURL), let persisted = try? JSONDecoder().decode([PersistedItem].self, from: data) {
             var loaded: [ClipboardItem] = []
             for p in persisted {
-                if p.type == "text" { loaded.append(ClipboardItem(id: p.id, text: p.content, image: nil, fileURL: nil, timestamp: p.timestamp)) }
-                else if p.type == "url", let url = URL(string: p.content) { loaded.append(ClipboardItem(id: p.id, text: nil, image: nil, fileURL: url, timestamp: p.timestamp)) }
-                else if p.type == "image" {
+                if p.type == "text" {
+                    loaded.append(ClipboardItem(id: p.id, text: p.content, image: nil, fileURL: nil, timestamp: p.timestamp))
+                } else if p.type == "url", let url = URL(string: p.content) {
+                    loaded.append(ClipboardItem(id: p.id, text: nil, image: nil, fileURL: url, timestamp: p.timestamp))
+                } else if p.type == "image" {
                     if let img = NSImage(contentsOf: dataURL.appendingPathComponent(p.content)) {
-                        loaded.append(ClipboardItem(id: p.id, text: nil, image: img, fileURL: nil, timestamp: p.timestamp))
+                        let hash = p.imageHash ?? ClipboardItem.hashImage(img)
+                        loaded.append(ClipboardItem(
+                            id: p.id,
+                            text: nil,
+                            image: img,
+                            fileURL: nil,
+                            timestamp: p.timestamp,
+                            ocrText: p.ocrText,
+                            imageHash: hash
+                        ))
                     }
                 }
             }
@@ -303,7 +778,9 @@ class ClipboardMonitor: ObservableObject {
         }
     }
     
-    private func deleteDiskItem(_ id: UUID) { try? FileManager.default.removeItem(at: dataURL.appendingPathComponent("\(id.uuidString).png")) }
+    private func deleteDiskItem(_ id: UUID) {
+        try? FileManager.default.removeItem(at: dataURL.appendingPathComponent("\(id.uuidString).png"))
+    }
     
     private func deleteDiskData() {
         if FileManager.default.fileExists(atPath: dataURL.path) {
@@ -311,7 +788,9 @@ class ClipboardMonitor: ObservableObject {
             else {
                 try? FileManager.default.removeItem(at: indexURL)
                 let files = (try? FileManager.default.contentsOfDirectory(atPath: dataURL.path)) ?? []
-                for file in files where file.hasSuffix(".png") { try? FileManager.default.removeItem(at: dataURL.appendingPathComponent(file)) }
+                for file in files where file.hasSuffix(".png") {
+                    try? FileManager.default.removeItem(at: dataURL.appendingPathComponent(file))
+                }
             }
         }
     }
@@ -342,8 +821,6 @@ struct ShortcutRecorder: View {
     func startRecording() {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            
-            // Ignore if ONLY a modifier key is pressed (wait for the actual character key)
             let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
             if modifierKeyCodes.contains(event.keyCode) {
                 return event
@@ -356,7 +833,7 @@ struct ShortcutRecorder: View {
                 self.shortcut = newShortcut
                 self.stopRecording()
             }
-            return nil // Consume the event so it doesn't trigger anything else
+            return nil
         }
     }
     
@@ -369,12 +846,86 @@ struct ShortcutRecorder: View {
     }
 }
 
+/// Bridges popover key handling without capturing stale SwiftUI struct state.
+final class HistoryKeyHandler: ObservableObject {
+    var showPreferences: () -> Bool = { false }
+    var searchText: () -> String = { "" }
+    var setSearchText: (String) -> Void = { _ in }
+    var focusedIndex: () -> Int = { 0 }
+    var setFocusedIndex: (Int) -> Void = { _ in }
+    var filtered: () -> [ClipboardItem] = { [] }
+    var activate: (ClipboardItem) -> Void = { _ in }
+    private var monitor: Any?
+    
+    func install() {
+        remove()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            if self.showPreferences() { return event }
+            
+            if let editor = NSApp.keyWindow?.firstResponder as? NSTextView, editor.isEditable {
+                if event.keyCode == 53 {
+                    self.setSearchText("")
+                    NotificationCenter.default.post(name: .clipMonsterClosePopover, object: nil)
+                    return nil
+                }
+                return event
+            }
+            return self.handle(event)
+        }
+    }
+    
+    func remove() {
+        if let m = monitor {
+            NSEvent.removeMonitor(m)
+            monitor = nil
+        }
+    }
+    
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        let items = filtered()
+        let idx = focusedIndex()
+        
+        switch event.keyCode {
+        case 53:
+            NotificationCenter.default.post(name: .clipMonsterClosePopover, object: nil)
+            return nil
+        case 125:
+            if !items.isEmpty { setFocusedIndex(min(idx + 1, items.count - 1)) }
+            return nil
+        case 126:
+            if !items.isEmpty { setFocusedIndex(max(idx - 1, 0)) }
+            return nil
+        case 36, 76:
+            if items.indices.contains(idx) { activate(items[idx]) }
+            return nil
+        case 18, 19, 20, 21, 23, 22, 26, 28, 25:
+            let map: [UInt16: Int] = [18: 0, 19: 1, 20: 2, 21: 3, 23: 4, 22: 5, 26: 6, 28: 7, 25: 8]
+            if let n = map[event.keyCode], items.indices.contains(n) {
+                setFocusedIndex(n)
+                activate(items[n])
+                return nil
+            }
+            return event
+        default:
+            return event
+        }
+    }
+    
+    deinit { remove() }
+}
+
 struct ContentView: View {
     @ObservedObject var monitor: ClipboardMonitor
+    var appDelegate: AppDelegate?
     @State private var showPreferences = false
+    @State private var searchText = ""
+    @State private var focusedIndex = 0
+    @StateObject private var keyHandler = HistoryKeyHandler()
     
     var body: some View {
         VStack(spacing: 0) {
+            // Fixed header — always visible
             HStack {
                 Text(showPreferences ? "Preferences" : "ClipMonster").font(.headline)
                 Spacer()
@@ -383,42 +934,139 @@ struct ContentView: View {
                         .buttonStyle(.plain).help("Purge All")
                     Spacer().frame(width: 12)
                 }
+                if showPreferences {
+                    Button("Done") { showPreferences = false }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    Spacer().frame(width: 8)
+                }
                 Button(action: { showPreferences.toggle() }) {
                     Image(systemName: showPreferences ? "xmark.circle.fill" : "gearshape.fill")
                         .foregroundColor(showPreferences ? .secondary : .primary)
                 }.buttonStyle(.plain)
-            }.padding()
-            Divider()
+                .help(showPreferences ? "Close preferences" : "Preferences")
+            }.padding(.horizontal).padding(.top, 12).padding(.bottom, 8)
             
-            if showPreferences { PreferencesView(monitor: monitor) }
-            else {
-                HistoryListView(monitor: monitor)
-                
-                if !monitor.selectedItems.isEmpty {
-                    Divider()
-                    Button(action: {
-                        monitor.copySelected()
-                    }) {
-                        Text("Apply & Copy \(monitor.selectedItems.count) Items")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4)
+            if !showPreferences {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                    TextField("Search history…", text: $searchText)
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
+                        }.buttonStyle(.plain)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .padding()
                 }
+                .padding(8)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
             
             Divider()
+            
+            // Flexible middle — scrolls when content is tall (esp. Preferences)
+            Group {
+                if showPreferences {
+                    PreferencesView(monitor: monitor)
+                } else {
+                    VStack(spacing: 0) {
+                        HistoryListView(
+                            monitor: monitor,
+                            filtered: monitor.filteredHistory(query: searchText),
+                            focusedIndex: $focusedIndex,
+                            onActivate: { item in activate(item) }
+                        )
+                        
+                        if !monitor.selectedItems.isEmpty {
+                            Divider()
+                            Button(action: {
+                                monitor.copySelected()
+                                if monitor.autoPaste {
+                                    appDelegate?.autoPasteIntoPreviousApp()
+                                }
+                            }) {
+                                Text("Apply & Copy \(monitor.selectedItems.count) Items")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(8)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            
+            // Fixed footer — Quit always reachable
+            Divider()
             HStack {
+                if !showPreferences {
+                    Text("↑↓ ⏎ · Esc · 1–9")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Scroll for more settings")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
                 Spacer()
-                Button("Quit") { NSApplication.shared.terminate(nil) }.buttonStyle(.borderless).controlSize(.small)
-            }.padding(8)
-        }.frame(width: 340, height: 490)
+                Button("Quit ClipMonster") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .foregroundColor(.red)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(NSColor.windowBackgroundColor))
+        }
+        .frame(width: 360, height: 540)
+        .onAppear { bindKeyHandler(); keyHandler.install() }
+        .onDisappear { keyHandler.remove() }
+        .onChange(of: searchText) {
+            focusedIndex = 0
+            bindKeyHandler()
+        }
+        .onChange(of: showPreferences) {
+            bindKeyHandler()
+            if showPreferences { keyHandler.remove() } else { keyHandler.install() }
+        }
+        .onChange(of: focusedIndex) { bindKeyHandler() }
+        .onChange(of: monitor.history.count) { bindKeyHandler() }
+    }
+    
+    private func bindKeyHandler() {
+        keyHandler.showPreferences = { showPreferences }
+        keyHandler.searchText = { searchText }
+        keyHandler.setSearchText = { searchText = $0 }
+        keyHandler.focusedIndex = { focusedIndex }
+        keyHandler.setFocusedIndex = { focusedIndex = $0 }
+        keyHandler.filtered = { monitor.filteredHistory(query: searchText) }
+        keyHandler.activate = { activate($0) }
+    }
+    
+    private func activate(_ item: ClipboardItem) {
+        if NSEvent.modifierFlags.contains(.shift) {
+            monitor.toggleSelection(for: item)
+            return
+        }
+        monitor.copyToClipboard(item: item)
+        if monitor.autoPaste {
+            appDelegate?.autoPasteIntoPreviousApp()
+        }
     }
 }
 
 struct HistoryListView: View {
     @ObservedObject var monitor: ClipboardMonitor
+    let filtered: [ClipboardItem]
+    @Binding var focusedIndex: Int
+    var onActivate: (ClipboardItem) -> Void
+    
     var body: some View {
         if monitor.history.isEmpty {
             VStack {
@@ -427,8 +1075,29 @@ struct HistoryListView: View {
                 Text("No history yet.").foregroundColor(.secondary)
                 Spacer()
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if filtered.isEmpty {
+            VStack {
+                Spacer()
+                Image(systemName: "magnifyingglass").font(.largeTitle).foregroundColor(.secondary).padding(.bottom, 4)
+                Text("No matches.").foregroundColor(.secondary)
+                Spacer()
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List { ForEach(monitor.history) { item in HistoryItemRow(item: item, monitor: monitor) } }
+            List {
+                ForEach(Array(filtered.enumerated()), id: \.element.id) { index, item in
+                    HistoryItemRow(
+                        item: item,
+                        monitor: monitor,
+                        isFocused: index == focusedIndex,
+                        onActivate: { onActivate(item) }
+                    )
+                    .listRowBackground(
+                        index == focusedIndex
+                            ? Color.accentColor.opacity(0.12)
+                            : Color.clear
+                    )
+                }
+            }
         }
     }
 }
@@ -436,110 +1105,262 @@ struct HistoryListView: View {
 struct HistoryItemRow: View {
     let item: ClipboardItem
     @ObservedObject var monitor: ClipboardMonitor
+    var isFocused: Bool = false
+    var onActivate: () -> Void
+    
     @State private var showCheckmark = false
+    
+    private var canDrag: Bool {
+        item.image != nil || item.fileURL != nil || item.text != nil
+    }
+    
+    private var dragHelp: String {
+        if item.image != nil {
+            return "Click to copy · Drag to place · OCR button for text"
+        }
+        if item.fileURL != nil {
+            return "Click to copy · Drag to place file"
+        }
+        return "Click to copy · Drag to place text"
+    }
     
     var body: some View {
         let isSelected = monitor.selectedItems.contains(item.id)
         
-        HStack {
-            Button(action: {
+        HStack(spacing: 4) {
+            HStack {
+                if let img = item.image {
+                    Image(nsImage: img).resizable().scaledToFill().frame(width: 40, height: 40).clipped().cornerRadius(4)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Image").font(.subheadline)
+                        if item.isOCRing {
+                            Text("OCR…").font(.caption).foregroundColor(.secondary)
+                        } else if let ocr = item.ocrText, !ocr.isEmpty {
+                            Text(ocr).lineLimit(1).font(.caption).foregroundColor(.secondary)
+                        } else {
+                            Text("\(Int(img.size.width))x\(Int(img.size.height))").font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                } else if let url = item.fileURL {
+                    Image(systemName: "doc").font(.title2).frame(width: 40)
+                    Text(url.lastPathComponent).lineLimit(1)
+                } else if let txt = item.text {
+                    Text(txt).lineLimit(2).font(.system(.body, design: .monospaced))
+                }
+                Spacer()
+                if showCheckmark {
+                    Image(systemName: "checkmark.circle.fill").foregroundColor(.green).transition(.scale)
+                } else if isSelected {
+                    Image(systemName: "checkmark.square.fill").foregroundColor(.accentColor)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .help(dragHelp)
+            .onTapGesture {
                 if NSEvent.modifierFlags.contains(.shift) {
                     monitor.toggleSelection(for: item)
                 } else {
-                    monitor.copyToClipboard(item: item)
+                    onActivate()
                     withAnimation { showCheckmark = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { showCheckmark = false } }
-                }
-            }) {
-                HStack {
-                    if let img = item.image {
-                        Image(nsImage: img).resizable().scaledToFill().frame(width: 40, height: 40).clipped().cornerRadius(4)
-                        VStack(alignment: .leading) {
-                            Text("Image").font(.subheadline)
-                            Text("\(Int(img.size.width))x\(Int(img.size.height))").font(.caption).foregroundColor(.secondary)
-                        }
-                    } else if let url = item.fileURL {
-                        Image(systemName: "doc").font(.title2).frame(width: 40)
-                        Text(url.lastPathComponent).lineLimit(1)
-                    } else if let txt = item.text {
-                        Text(txt).lineLimit(2).font(.system(.body, design: .monospaced))
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        withAnimation { showCheckmark = false }
                     }
-                    Spacer()
-                    if showCheckmark { Image(systemName: "checkmark.circle.fill").foregroundColor(.green).transition(.scale) }
-                    else if isSelected { Image(systemName: "checkmark.square.fill").foregroundColor(.accentColor) }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .onDrag {
+                guard canDrag else { return NSItemProvider() }
+                DragSession.begin()
+                return item.makeDragItemProvider()
+            } preview: {
+                dragPreview
+            }
+            
+            // OCR controls for images
+            if item.image != nil {
+                if item.isOCRing {
+                    ProgressView().controlSize(.small).frame(width: 20)
+                } else if let ocr = item.ocrText, !ocr.isEmpty {
+                    Button(action: {
+                        monitor.copyOCRText(for: item)
+                        withAnimation { showCheckmark = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            withAnimation { showCheckmark = false }
+                        }
+                    }) {
+                        Image(systemName: "doc.text")
+                            .foregroundColor(.accentColor)
+                            .padding(4)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy OCR text")
+                } else {
+                    Button(action: { monitor.forceRunOCR(for: item.id) }) {
+                        Image(systemName: "text.viewfinder")
+                            .foregroundColor(.secondary)
+                            .padding(4)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Extract text (OCR)")
+                }
+            }
             
             if !showCheckmark {
-                Button(action: { monitor.deleteItem(item) }) { Image(systemName: "xmark").foregroundColor(.secondary).padding(4) }
-                    .buttonStyle(.plain)
-                    .onHover { hovering in if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                Button(action: { monitor.deleteItem(item) }) {
+                    Image(systemName: "xmark").foregroundColor(.secondary).padding(4)
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                }
             }
         }
         .padding(6)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.15)
+                : (isFocused ? Color.accentColor.opacity(0.08) : Color.clear)
+        )
         .cornerRadius(6)
+    }
+    
+    @ViewBuilder
+    private var dragPreview: some View {
+        if let img = item.image {
+            Image(nsImage: img)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 120, maxHeight: 120)
+                .cornerRadius(6)
+                .shadow(radius: 4)
+        } else if let url = item.fileURL {
+            Label(url.lastPathComponent, systemImage: "doc")
+                .padding(8)
+                .background(.regularMaterial)
+                .cornerRadius(6)
+        } else if let txt = item.text {
+            Text(txt)
+                .lineLimit(3)
+                .font(.system(.caption, design: .monospaced))
+                .padding(8)
+                .frame(maxWidth: 180, alignment: .leading)
+                .background(.regularMaterial)
+                .cornerRadius(6)
+        } else {
+            EmptyView()
+        }
     }
 }
 
 struct PreferencesView: View {
     @ObservedObject var monitor: ClipboardMonitor
     var body: some View {
-        Form {
-            Section(header: Text("History Limits").font(.headline)) {
-                Stepper(value: $monitor.historyLimit, in: 10...500, step: 10) { Text("Keep the last \(monitor.historyLimit) items") }
-            }.padding(.top, 4)
-            Divider().padding(.vertical, 4)
-            
-            Section(header: Text("Global Shortcut").font(.headline)) {
-                HStack {
-                    Text("Show Popover:")
-                    Spacer()
-                    ShortcutRecorder(shortcut: $monitor.globalShortcut)
-                }
-            }.padding(.top, 4)
-            Divider().padding(.vertical, 4)
-            
-            Section(header: Text("Persistence").font(.headline)) {
-                Toggle("Keep history across reboots", isOn: $monitor.keepThroughReboot)
-                if monitor.keepThroughReboot {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Storage Location:").font(.caption).foregroundColor(.secondary)
-                        HStack {
-                            Text(monitor.storagePath.isEmpty ? "Default (App Support)" : monitor.storagePath).lineLimit(1).truncationMode(.middle).font(.caption)
-                            Spacer()
-                            Button("Change...") {
-                                let panel = NSOpenPanel()
-                                panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.canCreateDirectories = true
-                                if panel.runModal() == .OK, let url = panel.url {
-                                    monitor.storagePath = url.path
-                                    monitor.keepThroughReboot = false; monitor.keepThroughReboot = true
-                                }
-                            }.controlSize(.mini)
-                        }
-                    }.padding(.leading, 16).padding(.top, 4)
-                }
-            }
-            Divider().padding(.vertical, 4)
-            
-            Section(header: Text("Permissions").font(.headline)) {
-                Text("For shortcuts to work, enable Accessibility for ClipMonster.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Button("Open System Settings") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                        NSWorkspace.shared.open(url)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 14) {
+                prefSection("History Limits") {
+                    Stepper(value: $monitor.historyLimit, in: 10...500, step: 10) {
+                        Text("Keep the last \(monitor.historyLimit) items")
                     }
                 }
+                
+                prefSection("Paste") {
+                    Toggle("Auto-paste into previous app", isOn: $monitor.autoPaste)
+                    Text("After you pick an item, simulates ⌘V. Needs Accessibility.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                prefSection("OCR") {
+                    Toggle("Auto-OCR new images", isOn: $monitor.autoOCR)
+                    Text("Uses on-device Apple Vision. You can also OCR a single image from its row.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                
+                prefSection("Global Shortcut") {
+                    HStack {
+                        Text("Show Popover:")
+                        Spacer()
+                        ShortcutRecorder(shortcut: $monitor.globalShortcut)
+                    }
+                }
+                
+                prefSection("Startup") {
+                    Toggle("Start ClipMonster at login", isOn: Binding(
+                        get: { monitor.launchAtLogin },
+                        set: { monitor.setLaunchAtLogin($0) }
+                    ))
+                    Text("Launches in the menu bar after you log in or reboot.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let err = monitor.launchAtLoginError {
+                        Text(err)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                
+                prefSection("Persistence") {
+                    Toggle("Keep history across reboots", isOn: $monitor.keepThroughReboot)
+                    if monitor.keepThroughReboot {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Storage Location:").font(.caption).foregroundColor(.secondary)
+                            HStack {
+                                Text(monitor.storagePath.isEmpty ? "Default (App Support)" : monitor.storagePath)
+                                    .lineLimit(1).truncationMode(.middle).font(.caption)
+                                Spacer()
+                                Button("Change...") {
+                                    let panel = NSOpenPanel()
+                                    panel.canChooseFiles = false
+                                    panel.canChooseDirectories = true
+                                    panel.canCreateDirectories = true
+                                    if panel.runModal() == .OK, let url = panel.url {
+                                        monitor.storagePath = url.path
+                                        monitor.keepThroughReboot = false
+                                        monitor.keepThroughReboot = true
+                                    }
+                                }.controlSize(.mini)
+                            }
+                        }
+                        .padding(.leading, 4)
+                    }
+                }
+                
+                prefSection("Permissions") {
+                    Text("Accessibility is required for the global shortcut and auto-paste.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open System Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                
+                prefSection("Data Management") {
+                    Button("Purge All Data") { monitor.purgeAll() }
+                        .foregroundColor(.red)
+                }
+                
+                // Extra space so last controls aren't tight against the footer
+                Color.clear.frame(height: 8)
             }
-            Divider().padding(.vertical, 4)
-            
-            Section(header: Text("Data Management").font(.headline)) {
-                Button("Purge All Data") { monitor.purgeAll() }.foregroundColor(.red)
-            }
-        }.padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    
+    @ViewBuilder
+    private func prefSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.headline)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        Divider()
     }
 }

@@ -1,20 +1,52 @@
-# App Roadmap: BoarderPatrol
+# App Roadmap: ClipMonster
 
-## Phase 1: MVP (Minimum Viable Product)
-- [ ] Scaffold the project directories (`src`, `dist`, `docs`).
-- [ ] Write the `build_app.sh` script to compile Swift files into a `.app` bundle.
-- [ ] Create the `NSStatusItem` and a basic empty `NSPopover`.
-- [ ] Implement `ClipboardMonitor` to poll for plain text changes and store them in memory.
-- [ ] Build the SwiftUI list to display the copied strings.
+## Phase 1: MVP — done
 
-## Phase 2: Rich Media & Auto-Paste
-- [ ] Upgrade `ClipboardMonitor` to support Images (`NSImage`), Rich Text, and Files.
-- [ ] Implement UI elements for displaying image thumbnails and file paths.
-- [ ] Write the Accessibility Event logic to simulate `Cmd+V` on item selection (Auto-paste).
-- [ ] Request and handle Accessibility permissions from macOS.
+- [x] Project dirs (`src`, `dist`, `docs`)
+- [x] `build_app.sh` → `ClipMonster.app`
+- [x] `NSStatusItem` + `NSPopover`
+- [x] `ClipboardMonitor` for text history
+- [x] SwiftUI history list
 
-## Phase 3: Global Shortcut & Preferences
-- [ ] Implement global hotkey registration (Cmd+Shift+V).
-- [ ] Add a "Clear History" button in the UI.
-- [ ] Build a Preferences pane to configure memory limits (e.g., maximum of 50 items).
-- [ ] (Stretch) Allow users to change the global hotkey via the UI.
+## Phase 2: Rich media — done
+
+- [x] Images (`NSImage`) in monitor + UI thumbnails
+- [x] File URL items
+- [x] Drag-out (file URL for Terminal/Finder; PNG data for image apps)
+- [x] Auto-paste via Accessibility / simulated Cmd+V (preference toggle)
+- [x] Accessibility Settings deep-link
+
+## Phase 3: Shortcut & preferences — done
+
+- [x] Global hotkey (customizable; default Fn+V)
+- [x] Clear / purge history
+- [x] History limit preference
+- [x] Customizable global shortcut in Preferences
+- [x] Optional disk persistence + custom storage path
+- [x] Start at login (Login Items / LaunchAgent fallback)
+- [x] Multi-select copy (Shift-click)
+- [x] Scrollable preferences + pinned header/footer (Quit always reachable)
+
+## Phase 4: Core upgrades — done
+
+| # | Upgrade | Status |
+|---|---------|--------|
+| 1 | Auto-paste on select into previous app | Done |
+| 2 | Search / filter history | Done |
+| 3 | Keyboard navigation (↑/↓, Return, Esc, 1–9) | Done |
+| 4 | Image de-dupe (content hash) | Done |
+| 5 | Cleaner drag filenames for Terminal | Done |
+| 6 | OCR (Vision) — on-demand + optional auto + searchable | Done |
+| 7 | Local + global shortcut monitors | Done |
+| 8 | Clean up drag temp PNGs on launch | Done |
+
+## Phase 5: Next ideas
+
+- [ ] Pin favorite items
+- [ ] Full-size image preview (hover / Space)
+- [ ] Optional: keep popover open after drag
+- [ ] “Copy path” / “Reveal in Finder” for file & image items
+- [ ] Save image as…
+- [ ] Exclude apps from capture
+- [ ] Rich text / RTF history type
+- [ ] Code signing / notarization for smoother Login Items + distribution

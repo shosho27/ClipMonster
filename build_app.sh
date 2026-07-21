@@ -16,7 +16,10 @@ mkdir -p "${RESOURCES_DIR}"
 
 echo "Compiling Swift source..."
 # Compile all swift files in src
-swiftc -parse-as-library ${SRC_DIR}/*.swift -o "${MACOS_DIR}/${APP_NAME}"
+swiftc -parse-as-library ${SRC_DIR}/*.swift \
+    -framework ServiceManagement \
+    -framework Vision \
+    -o "${MACOS_DIR}/${APP_NAME}"
 
 echo "Creating Info.plist..."
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"
