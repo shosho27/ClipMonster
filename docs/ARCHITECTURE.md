@@ -17,6 +17,7 @@ Bundle ID: `com.sashornock.ClipMonster`
 - Creates the `NSStatusItem` (menu bar icon).
 - Hosts SwiftUI `ContentView` inside an `NSPopover` (default size ~360×540, transient).
 - Registers **global and local** key monitors for the user-defined shortcut.
+- Registers the latest-image-path shortcut as an **exclusive Carbon system hotkey**, so the focused CLI does not receive that key combination before ClipMonster substitutes the PNG path.
 - Tracks `lastFrontmostApp` via `NSWorkspace.didActivateApplicationNotification` (for auto-paste).
 - On drag start/end:
   - Popover → `.applicationDefined` so it stays open while dragging out.
@@ -28,12 +29,16 @@ Bundle ID: `com.sashornock.ClipMonster`
 - Polls `NSPasteboard.general.changeCount` every **0.5s**.
 - On change, reads in order: **image** → **file URL** → **plain text**.
 - Skips sensitive content (`org.nspasteboard.ConcealedType` + password-like heuristic).
-- In-memory `history: [ClipboardItem]` capped by `historyLimit`.
+- In-memory `history: [ClipboardItem]` capped by `historyLimit`, or unlimited when the user enables `unlimitedHistory`.
 - **De-dupe:** same text, same file URL, or same **image SHA-256** replaces the prior entry.
 - Optional disk persistence (`keepThroughReboot`):
   - PNG per image: `~/Library/Application Support/ClipMonster/<UUID>.png` (or custom `storagePath`)
   - `index.json` with type, content, timestamp, optional `ocrText` / `imageHash`
-- Preferences (UserDefaults): history limit, auto-paste, auto-OCR, shortcut, storage path, etc.
+- Preferences (UserDefaults): history limit/unlimited mode, auto-paste, auto-OCR, shortcut, storage path, etc.
+- **`openInPreview(_:)`** — resolve/write PNG (persisted path preferred), open with **Preview.app** (`com.apple.Preview`) via `NSWorkspace`.
+- **`revealInFinder(_:)`** — select a persisted (or temporary) image PNG in Finder.
+- **`copyLatestImagePathToClipboard()`** — resolves the latest image to a PNG path; reads a just-taken screenshot from the pasteboard immediately rather than waiting for the polling interval.
+- **`changeStorageDirectory(to:)`** — validates a user-selected directory, copies the current persisted history, then removes only ClipMonster-owned files from the prior location.
 
 ### 3. ClipboardItem & drag export
 
@@ -60,14 +65,24 @@ Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, 
 
 | Piece | Role |
 |-------|------|
-| `ContentView` | Fixed header + optional search + flexible middle + fixed footer (Quit) |
+| `ContentView` | Fixed header + search + flexible middle + fixed footer; hosts large-preview overlay state |
 | `HistoryListView` | Empty / no-match / list with focus highlight |
-| `HistoryItemRow` | Thumbnail; click activate; drag; OCR controls; Shift multi-select; delete |
+| `HistoryItemRow` | 56×56 thumb; click text = copy; thumb = large preview; double-click = Preview.app; eye / ↗ / Finder / Copy Path / OCR / delete |
+| `LargeImagePreviewOverlay` | Dimmed overlay with large image, optional OCR snippet, Open in Preview / Close |
 | `PreferencesView` | **ScrollView** of settings sections (avoids clipping) |
-| `HistoryKeyHandler` | Local key monitor: ↑/↓, Return, Esc, 1–9 |
+| `HistoryKeyHandler` | Local keys: ↑/↓, Return, **Space** (preview), Esc (dismiss overlay first), 1–9 |
 | `ShortcutRecorder` | Capture custom global hotkey |
+| `PathPasteHotKey` | Exclusive system hotkey for pasting the newest image PNG path into the focused CLI |
 
-**Layout rule:** Preferences content scrolls; **Done**, gear, and **Quit ClipMonster** stay pinned so controls are never cut off.
+**Layout rule:** Preferences content scrolls; **Done**, gear, and **Quit ClipMonster** stay pinned.
+
+**Image interaction split**
+
+- Thumbnail / eye / Space → in-app large preview  
+- Double-click / ↗ → `openInPreview` → Preview.app  
+- Folder button → `revealInFinder` → Finder selects the PNG  
+- Two-documents button → `copyImagePath` → PNG path goes to the clipboard  
+- Row label area single-click → copy + optional auto-paste  
 
 ### 6. OCR (Vision)
 
@@ -113,10 +128,14 @@ De-dupe + insert (+ optional disk save)
         ↓
 HistoryListView / HistoryItemRow
         ↓
-  click  → copy (+ auto-paste)
-  drag   → NSItemProvider (file URL + image)
-  OCR    → Vision → ocrText → search / copy text
-  shift  → multi-select → copySelected
+  click text  → copy (+ auto-paste)
+  thumb/Space → LargeImagePreviewOverlay
+  double-click / ↗ → Preview.app (openInPreview)
+  folder button → Finder (revealInFinder)
+  ⌘⇧V → latest image PNG path → focused CLI
+  drag        → NSItemProvider (file URL + image)
+  OCR         → Vision → ocrText → search / copy text
+  shift       → multi-select → copySelected
 ```
 
 ---
@@ -137,4 +156,4 @@ HistoryListView / HistoryItemRow
 
 ## Not implemented (yet)
 
-See [APP_ROADMAP.md](APP_ROADMAP.md) Phase 5: pin favorites, large preview, keep popover after drag, reveal/save path, exclude apps, rich text, code signing/notarization.
+See [APP_ROADMAP.md](APP_ROADMAP.md) Phase 5: pin favorites, keep popover after drag, save image as, exclude apps, rich text, code signing/notarization.

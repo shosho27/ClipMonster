@@ -23,6 +23,7 @@
 - [x] History limit preference
 - [x] Customizable global shortcut in Preferences
 - [x] Optional disk persistence + custom storage path
+- [x] Unlimited-history preference
 - [x] Start at login (Login Items / LaunchAgent fallback)
 - [x] Multi-select copy (Shift-click)
 - [x] Scrollable preferences + pinned header/footer (Quit always reachable)
@@ -39,13 +40,15 @@
 | 6 | OCR (Vision) — on-demand + optional auto + searchable | Done |
 | 7 | Local + global shortcut monitors | Done |
 | 8 | Clean up drag temp PNGs on launch | Done |
+| 9 | Large in-app image preview (thumb / eye / Space) | Done |
+| 10 | Double-click / button → open in Preview.app | Done |
+| 11 | Reveal captured image in Finder | Done |
+| 12 | Copy/paste latest image path into a CLI | Done |
 
 ## Phase 5: Next ideas
 
 - [ ] Pin favorite items
-- [ ] Full-size image preview (hover / Space)
 - [ ] Optional: keep popover open after drag
-- [ ] “Copy path” / “Reveal in Finder” for file & image items
 - [ ] Save image as…
 - [ ] Exclude apps from capture
 - [ ] Rich text / RTF history type
