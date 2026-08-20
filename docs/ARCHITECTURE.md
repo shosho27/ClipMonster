@@ -1,12 +1,37 @@
-# Architecture: ClipMonster
+# Architecture: ClipMonster 2.0
+
+## Working-copy isolation
+
+ClipMonster 2.0 is an independent working copy created for screen-capture markup development. Keep all new feature work here; do not modify `../ClipMonster/`.
+
+- Bundle ID: `com.sashornock.ClipMonster2`
+- Default persistence: `~/Library/Application Support/ClipMonster 2.0/`
+- LaunchAgent fallback: `com.sashornock.ClipMonster2`
+- Temporary exports: `clipmonster2-*.png`
+- Default shortcuts: Control-Option-V (popover) and Command-Option-Shift-V (latest PNG path)
+
+Those identities prevent it from overwriting the original app's stored captures, login item, or temporary files, and avoid its initial shortcut conflicts.
 
 ## Overview
 
-ClipMonster is a **single-file** Swift application (`src/ClipMonster.swift`) using **AppKit** + **SwiftUI**. It runs as a menu bar accessory (`LSUIElement`), with no Dock icon.
+ClipMonster 2.0 is a small Swift application using **AppKit** + **SwiftUI**. It runs as a menu bar accessory (`LSUIElement`), with no Dock icon.
+
+## Source layout
+
+| Area | Responsibility |
+|---|---|
+| `src/ClipMonster.swift` | SwiftUI app entry point only |
+| `src/App/` | Menu-bar lifecycle, popover, global hotkeys, auto-paste |
+| `src/Models/` | Clipboard, persistence, and shortcut value types |
+| `src/Services/` | Clipboard monitoring, disk storage, OCR, drag support, login item |
+| `src/Views/` | Content shell, image preview, history, preferences, keyboard controls |
+| `src/Annotation/` | Isolated markup editor, vector-like annotation model, and flattened-PNG renderer |
+
+This boundary keeps UI state, capture/persistence work, and the annotation editor from becoming coupled in one file.
 
 Built with `swiftc` via `build_app.sh` (links **ServiceManagement** + **Vision**). No Xcode project.
 
-Bundle ID: `com.sashornock.ClipMonster`
+Bundle ID: `com.sashornock.ClipMonster2`
 
 ---
 
@@ -14,7 +39,7 @@ Bundle ID: `com.sashornock.ClipMonster`
 
 ### 1. AppDelegate (AppKit)
 
-- Creates the `NSStatusItem` (menu bar icon).
+- Creates the `NSStatusItem` using bundled ClipMonster artwork (with an SF Symbol fallback).
 - Hosts SwiftUI `ContentView` inside an `NSPopover` (default size ~360×540, transient).
 - Registers **global and local** key monitors for the user-defined shortcut.
 - Registers the latest-image-path shortcut as an **exclusive Carbon system hotkey**, so the focused CLI does not receive that key combination before ClipMonster substitutes the PNG path.
@@ -32,7 +57,7 @@ Bundle ID: `com.sashornock.ClipMonster`
 - In-memory `history: [ClipboardItem]` capped by `historyLimit`, or unlimited when the user enables `unlimitedHistory`.
 - **De-dupe:** same text, same file URL, or same **image SHA-256** replaces the prior entry.
 - Optional disk persistence (`keepThroughReboot`):
-  - PNG per image: `~/Library/Application Support/ClipMonster/<UUID>.png` (or custom `storagePath`)
+  - PNG per image: `~/Library/Application Support/ClipMonster 2.0/<UUID>.png` (or custom `storagePath`)
   - `index.json` with type, content, timestamp, optional `ocrText` / `imageHash`
 - Preferences (UserDefaults): history limit/unlimited mode, auto-paste, auto-OCR, shortcut, storage path, etc.
 - **`openInPreview(_:)`** — resolve/write PNG (persisted path preferred), open with **Preview.app** (`com.apple.Preview`) via `NSWorkspace`.
@@ -48,7 +73,7 @@ Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, 
 
 `makeDragItemProvider()`:
 
-- **Images:** write temp PNG named `clipboard-yyyy-MM-dd-HHmmss.png`, base provider on **file URL** (Terminal/Finder), plus `public.png` data and `NSImage`.
+- **Images:** write temp PNG named `clipmonster2-yyyy-MM-dd-HHmmss.png`, base provider on **file URL** (Terminal/Finder), plus `public.png` data and `NSImage`.
 - **Files:** provider from existing URL.
 - **Text:** `NSString` provider.
 
@@ -58,8 +83,8 @@ Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, 
 
 1. Prefer **`SMAppService.mainApp`** (macOS 13+ Login Items).
 2. Fall back to LaunchAgent:  
-   `~/Library/LaunchAgents/com.sashornock.ClipMonster.plist`  
-   → `/usr/bin/open <path-to-ClipMonster.app>` at Aqua session load.
+   `~/Library/LaunchAgents/com.sashornock.ClipMonster2.plist`
+   → `/usr/bin/open <path-to-ClipMonster 2.0.app>` at Aqua session load.
 
 ### 5. UI (SwiftUI)
 
@@ -69,12 +94,19 @@ Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, 
 | `HistoryListView` | Empty / no-match / list with focus highlight |
 | `HistoryItemRow` | 56×56 thumb; click text = copy; thumb = large preview; double-click = Preview.app; eye / ↗ / Finder / Copy Path / OCR / delete |
 | `LargeImagePreviewOverlay` | Dimmed overlay with large image, optional OCR snippet, Open in Preview / Close |
+| `MarkupEditorView` | Full-size sheet launched by **Annotate**; Select, pen, arrow, box, text, color, width, undo/clear, transforms, and save |
 | `PreferencesView` | **ScrollView** of settings sections (avoids clipping) |
 | `HistoryKeyHandler` | Local keys: ↑/↓, Return, **Space** (preview), Esc (dismiss overlay first), 1–9 |
 | `ShortcutRecorder` | Capture custom global hotkey |
 | `PathPasteHotKey` | Exclusive system hotkey for pasting the newest image PNG path into the focused CLI |
 
-**Layout rule:** Preferences content scrolls; **Done**, gear, and **Quit ClipMonster** stay pinned.
+**Layout rule:** Preferences content scrolls; **Done**, gear, and **Quit ClipMonster 2.0** stay pinned.
+
+**Annotation workflow**
+
+- Save always creates a flattened annotated copy, inserts it at the top of history, and also places it on the system clipboard. The source capture is never modified.
+- Select exposes direct controls: drag to move; boxes/text/pen strokes have corner resize and rotation handles; arrows have tail/tip endpoint handles.
+- The selected-object inspector provides exact color, scale, rotation, deletion, and immediate text editing.
 
 **Image interaction split**
 
@@ -130,9 +162,10 @@ HistoryListView / HistoryItemRow
         ↓
   click text  → copy (+ auto-paste)
   thumb/Space → LargeImagePreviewOverlay
+  Annotate → MarkupEditorView → flattened annotated copy → history/storage
   double-click / ↗ → Preview.app (openInPreview)
   folder button → Finder (revealInFinder)
-  ⌘⇧V → latest image PNG path → focused CLI
+  ⌘⌥⇧V → latest image PNG path → focused CLI
   drag        → NSItemProvider (file URL + image)
   OCR         → Vision → ocrText → search / copy text
   shift       → multi-select → copySelected
@@ -144,11 +177,11 @@ HistoryListView / HistoryItemRow
 
 `build_app.sh`:
 
-1. Clean/create `dist/ClipMonster.app` layout  
-2. `swiftc -parse-as-library src/*.swift -framework ServiceManagement -framework Vision`  
-3. Write `Info.plist` (`LSUIElement`, icon, bundle id)  
-4. Generate `AppIcon.icns` from `img/Clipmonster.jpg`  
-5. Zip `dist/ClipMonster.zip`  
+1. Clean/create `dist/ClipMonster 2.0.app` layout
+2. `swiftc -parse-as-library` recursively compiles every Swift file below `src/`, with ServiceManagement and Vision linked
+3. Write `Info.plist` (`LSUIElement`, app icon, bundle id)
+4. Bundle `Clipmonster.jpg` and generate `AppIcon.icns` with `Scripts/make_icns.swift`
+5. Zip `dist/ClipMonster 2.0.zip`
 
 `dist/` is gitignored.
 

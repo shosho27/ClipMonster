@@ -1,4 +1,86 @@
-# Work Log: ClipMonster
+# Work Log: ClipMonster 2.0
+
+## 2026-08-19 — annotation workflow user-verified
+
+- User exercised the native markup workflow and reported it working after iterative fixes to canvas hit testing, Arrow endpoints, selection, save visibility, text editing, transforms, and direct manipulation handles.
+- Current product behavior is documented in `README.md` and `ARCHITECTURE.md`: annotations are non-destructive, save as a new top-of-history clipboard item, and support both direct handles and precise inspector controls.
+- The original ClipMonster app remains untouched; all implementation and validation occurred in the independent ClipMonster 2.0 working copy.
+
+## 2026-08-19 — independent 2.0 working copy
+
+- Created from the clean ClipMonster baseline at `../ClipMonster/`; the original was not modified.
+- Changed the bundle ID to `com.sashornock.ClipMonster2`, its default persistence folder to `~/Library/Application Support/ClipMonster 2.0/`, and its LaunchAgent label to `com.sashornock.ClipMonster2`.
+- Isolated temporary PNG names under `clipmonster2-` so cleanup cannot remove the original app's temporary exports.
+- Set non-conflicting initial shortcuts: Control-Option-V opens 2.0, Command-Option-Shift-V pastes its latest image path. Both can be changed within 2.0 Preferences.
+- Reserved this copy for the proposed screen-capture markup editor; no markup implementation is included yet.
+- Verified the Swift executable and ZIP build. On this macOS 26.6.2 host, the inherited `iconutil` conversion rejects the otherwise correctly sized iconset; the build now reports that as a warning instead of claiming a generated icon. This does not affect the menu-bar SF Symbol.
+
+## 2026-08-19 — architecture refactor before markup
+
+- Split the original monolith into `App/`, `Models/`, `Services/`, and `Views/` without changing the app's behavior.
+- `ClipMonster.swift` is now only the SwiftUI application entry point; `AppDelegate` owns menu-bar/popover/hotkey lifecycle, and `ClipboardMonitor` owns capture/history coordination.
+- Extracted image OCR, drag temporary-file cleanup, login-item support, persistence value types, and shortcut data into focused files.
+- Updated `build_app.sh` to compile nested `src/` folders, which creates a clean `src/Annotation/` seam for the markup editor.
+- Rebuilt successfully after the structural move; targeted live smoke checks will follow once annotation controls are introduced.
+
+## 2026-08-19 — native capture markup editor
+
+- Added **Annotate** to the large capture preview.
+- Built a dedicated full-size editor with Pen, Arrow, Box, and Text tools, color and stroke-width controls, Undo, and Clear.
+- Annotation points are normalized to the displayed capture, then rendered at the source image's original dimensions on save.
+- **Save Annotated Copy** creates a new PNG history item via `ClipboardMonitor`; it never alters the original capture. The new item follows the existing persistence, Finder, Preview, drag, OCR, and copy-path workflows.
+- Confirmed the full 2.0 bundle builds after the implementation; live interaction smoke testing remains the next check.
+- Corrected the 2.0 bundle executable name to `ClipMonster2` (the display bundle remains `ClipMonster 2.0.app`) after a macOS launch check rejected the space-containing executable filename.
+- Added the missing `CFBundlePackageType=APPL` bundle metadata required by Launch Services when opening the app bundle.
+- Verified that the built `ClipMonster 2.0.app` launches in the macOS GUI outside the sandbox. The interactive editor flow should be smoke-tested from a copied screenshot: preview → Annotate → draw → Save Annotated Copy.
+
+## 2026-08-19 — markup interaction correction
+
+- Replaced the ambiguous segmented text selector with selected-state icon buttons for Pen, Arrow, Box, and Text, including hover labels and accessibility labels.
+- Made the entire image overlay a concrete transparent hit target so drawing gestures reliably reach the markup canvas.
+- Added tool-specific instruction text directly below the editor canvas.
+
+## 2026-08-19 — annotation save-flow correction
+
+- Saving now places the flattened annotated copy in both ClipMonster 2.0 history and the system clipboard.
+- Opening Annotate closes the original preview, and saving returns directly to the history list with the new annotated capture at the top.
+- Removed gesture-local start state from Arrow and Box; their endpoints now derive directly from the active drag points, matching the reliable Pen interaction path.
+
+## 2026-08-19 — arrow and selection-tool correction
+
+- Arrow endpoints now come directly from `DragGesture.startLocation` and the current pointer location, eliminating asynchronous view-state dependence.
+- Added a Select cursor tool: click an annotation to highlight it, then drag it anywhere on the image. It supports pen strokes, arrows, boxes, and text.
+
+## 2026-08-19 — selected annotation transform inspector
+
+- Added selected-object controls for color, scale (25%–300%), rotation (-180°–180°), and delete.
+- The same geometric transforms apply in the SwiftUI editor and in the flattened PNG renderer, so saved copies match the editing preview.
+
+## 2026-08-19 — direct manipulation handles
+
+- Added familiar selection affordances alongside the numeric inspector: dashed bounds, four corner resize handles, and a rotation handle above text, boxes, and pen strokes.
+- Arrows use dedicated tail and tip handles, allowing users to reshape their length and direction directly.
+
+## 2026-08-19 — resize-handle identity correction
+
+- Fixed SwiftUI recreating a resize handle whenever its position changed during a drag. Corner handles now have stable identities and remain active throughout scaling.
+- Increased the visible resize target to 14×14 points for easier grabbing.
+
+## 2026-08-19 — editable text selection correction
+
+- Selecting a text annotation now focuses an editable text field in the selected-object inspector, so its words can be changed immediately.
+- Text selection bounds now use rendered text dimensions rather than a single placement point, placing resize and rotation controls around the actual text object.
+
+## 2026-08-19 — rotated rectangle and text-hit correction
+
+- Rectangles now expand to four corners before transformation, so rotation produces a true rotated shape in both the editor and saved PNG rather than an axis-aligned distorted box.
+- Enlarged text hit testing so clicking within a text object reliably selects it and exposes the editable text field.
+
+## 2026-08-19 — restored menu-bar artwork
+
+- Bundled the supplied `img/Clipmonster.jpg` directly into the app resources and restored it as the non-template menu-bar icon.
+- This avoids the current host's failing `.icns` conversion path; no alternate artwork format is required.
+- Added a small checked-in ICNS packager that writes the standard PNG-backed icon chunks directly, restoring the same artwork as Finder's application-bundle icon without relying on the failing host `iconutil` conversion.
 
 ## 2026-07-23
 
@@ -7,7 +89,7 @@
 - Storage-folder changes now validate write access, copy the current persisted history to the chosen directory, and remove only ClipMonster-owned files from the old location.
 - Added an image-row **folder** button to reveal the image PNG in Finder; temporary PNGs are created only when persistence is off.
 
-### CLI image-path handoff
+### CLI image-path handoff (baseline behavior; 2.0 defaults changed above)
 - Added an image-row **Copy Path** button.
 - Added a configurable global **Paste latest image path** shortcut, default **Command–Shift–V**. It resolves a screenshot directly from the current pasteboard when needed, then pastes its PNG path into the focused CLI.
 - Replaced the initial observer-based shortcut with an exclusive system hotkey so Terminal cannot paste the prior clipboard text before ClipMonster handles the command.

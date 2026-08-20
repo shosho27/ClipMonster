@@ -1,9 +1,13 @@
-# App Roadmap: ClipMonster
+# App Roadmap: ClipMonster 2.0
+
+## Working boundary
+
+This is the independent 2.0 working copy. The original ClipMonster remains unchanged in `../ClipMonster/` while markup work is developed here.
 
 ## Phase 1: MVP — done
 
 - [x] Project dirs (`src`, `dist`, `docs`)
-- [x] `build_app.sh` → `ClipMonster.app`
+- [x] `build_app.sh` → `ClipMonster 2.0.app`
 - [x] `NSStatusItem` + `NSPopover`
 - [x] `ClipboardMonitor` for text history
 - [x] SwiftUI history list
@@ -18,7 +22,7 @@
 
 ## Phase 3: Shortcut & preferences — done
 
-- [x] Global hotkey (customizable; default Fn+V)
+- [x] Global hotkey (customizable; 2.0 default Control-Option-V)
 - [x] Clear / purge history
 - [x] History limit preference
 - [x] Customizable global shortcut in Preferences
@@ -47,6 +51,8 @@
 
 ## Phase 5: Next ideas
 
+- [x] Screen-capture markup editor: Select, pen, arrow, box, text, color, width, undo/clear, and annotated-copy save
+- [x] Annotation selection: move, corner resize, rotation handle, arrow endpoints, inspector color/scale/rotation/delete, editable text
 - [ ] Pin favorite items
 - [ ] Optional: keep popover open after drag
 - [ ] Save image as…

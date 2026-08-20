@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # build_app.sh
-APP_NAME="ClipMonster"
+APP_NAME="ClipMonster 2.0"
+EXECUTABLE_NAME="ClipMonster2"
+BUNDLE_ID="com.sashornock.ClipMonster2"
 SRC_DIR="src"
 DIST_DIR="dist"
 APP_BUNDLE="${DIST_DIR}/${APP_NAME}.app"
@@ -15,11 +17,16 @@ mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
 echo "Compiling Swift source..."
-# Compile all swift files in src
-swiftc -parse-as-library ${SRC_DIR}/*.swift \
+# Compile every Swift file below src so feature areas can use their own folders.
+SWIFT_SOURCES=()
+while IFS= read -r source_file; do
+    SWIFT_SOURCES+=("$source_file")
+done < <(find "$SRC_DIR" -type f -name '*.swift' -print | sort)
+
+swiftc -parse-as-library "${SWIFT_SOURCES[@]}" \
     -framework ServiceManagement \
     -framework Vision \
-    -o "${MACOS_DIR}/${APP_NAME}"
+    -o "${MACOS_DIR}/${EXECUTABLE_NAME}"
 
 echo "Creating Info.plist..."
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"
@@ -30,13 +37,15 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
     <key>CFBundleName</key>
     <string>${APP_NAME}</string>
     <key>CFBundleExecutable</key>
-    <string>${APP_NAME}</string>
+    <string>${EXECUTABLE_NAME}</string>
     <key>CFBundleIdentifier</key>
-    <string>com.sashornock.${APP_NAME}</string>
+    <string>${BUNDLE_ID}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>2.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
@@ -47,25 +56,22 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 </plist>
 EOF
 
-echo "Generating AppIcon.icns from BoarderPatrol.jpg..."
+echo "Bundling ClipMonster artwork and application icon..."
 ICON_SRC="img/Clipmonster.jpg"
 if [ -f "$ICON_SRC" ]; then
-    ICONSET_DIR="img/ClipMonster.iconset"
+    cp "$ICON_SRC" "${RESOURCES_DIR}/Clipmonster.jpg"
+    ICONSET_DIR="${DIST_DIR}/ClipMonster.iconset"
     mkdir -p "$ICONSET_DIR"
     sips -s format png -z 16 16     "$ICON_SRC" --out "${ICONSET_DIR}/icon_16x16.png" > /dev/null
-    sips -s format png -z 32 32     "$ICON_SRC" --out "${ICONSET_DIR}/icon_16x16@2x.png" > /dev/null
     sips -s format png -z 32 32     "$ICON_SRC" --out "${ICONSET_DIR}/icon_32x32.png" > /dev/null
-    sips -s format png -z 64 64     "$ICON_SRC" --out "${ICONSET_DIR}/icon_32x32@2x.png" > /dev/null
+    sips -s format png -z 64 64     "$ICON_SRC" --out "${ICONSET_DIR}/icon_64x64.png" > /dev/null
     sips -s format png -z 128 128   "$ICON_SRC" --out "${ICONSET_DIR}/icon_128x128.png" > /dev/null
-    sips -s format png -z 256 256   "$ICON_SRC" --out "${ICONSET_DIR}/icon_128x128@2x.png" > /dev/null
     sips -s format png -z 256 256   "$ICON_SRC" --out "${ICONSET_DIR}/icon_256x256.png" > /dev/null
-    sips -s format png -z 512 512   "$ICON_SRC" --out "${ICONSET_DIR}/icon_256x256@2x.png" > /dev/null
     sips -s format png -z 512 512   "$ICON_SRC" --out "${ICONSET_DIR}/icon_512x512.png" > /dev/null
-    sips -s format png -z 1024 1024 "$ICON_SRC" --out "${ICONSET_DIR}/icon_512x512@2x.png" > /dev/null
-    
-    iconutil -c icns "$ICONSET_DIR" -o "${RESOURCES_DIR}/AppIcon.icns"
+    sips -s format png -z 1024 1024 "$ICON_SRC" --out "${ICONSET_DIR}/icon_1024x1024.png" > /dev/null
+    swift Scripts/make_icns.swift "$ICONSET_DIR" "${RESOURCES_DIR}/AppIcon.icns"
     rm -rf "$ICONSET_DIR"
-    echo "AppIcon.icns generated successfully."
+    echo "Menu-bar artwork and AppIcon.icns bundled successfully."
 else
     echo "Warning: Icon source not found at $ICON_SRC"
 fi

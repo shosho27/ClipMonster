@@ -1,10 +1,14 @@
-# ClipMonster
+# ClipMonster 2.0
+
+> **Independent working copy.** This is the sandbox for the markup/annotation work. It has a distinct macOS bundle ID, application-support folder, launch-at-login label, temporary-export prefix, and default shortcuts, so it can run alongside the original **ClipMonster** without altering its files or captured history.
+
+The original remains at `../ClipMonster/`; make feature changes in this directory only.
 
 A lightweight **macOS menu bar clipboard manager**. Keeps a history of copied text, images, and files so you can re-copy, multi-select, search, drag them out, preview/open screenshots, OCR text, or auto-paste into the app you were just using.
 
-Built as a **single-file** Swift/SwiftUI app (no Xcode project). Compiled locally with `build_app.sh`.
+Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally with `build_app.sh`.
 
-**Repo:** [github.com/shosho27/ClipMonster](https://github.com/shosho27/ClipMonster)
+**Starting point:** [github.com/shosho27/ClipMonster](https://github.com/shosho27/ClipMonster)
 
 ---
 
@@ -14,8 +18,10 @@ Built as a **single-file** Swift/SwiftUI app (no Xcode project). Compiled locall
 |------|----------------|
 | History | Text, images, file URLs; optional unlimited retention |
 | UI | Menu bar popover (`LSUIElement` — no Dock icon) |
+| Menu bar icon | Bundled ClipMonster artwork |
 | Click | Re-copy item; optional **auto-paste** (⌘V into previous app) |
 | Image preview | Larger list thumbs; **in-app overlay**; **double-click → Preview.app** |
+| Annotation | Native pen, arrow, box, and text editor; saves an annotated copy without changing the source capture |
 | CLI handoff | Copy an image path manually or paste the latest image path with a global shortcut |
 | Search | Filter by text, filenames, and **OCR text** |
 | Keyboard | ↑/↓, Return, **Space** (preview), Esc, **1–9** |
@@ -23,7 +29,7 @@ Built as a **single-file** Swift/SwiftUI app (no Xcode project). Compiled locall
 | OCR | On-device **Apple Vision** — per-image button or auto-OCR |
 | De-dupe | Images by content hash; text/files by value |
 | Multi-select | Shift-click → “Apply & Copy N Items” |
-| Shortcut | Customizable global hotkey (default **Fn+V**); local + global monitors |
+| Shortcut | Customizable global hotkey (default **Control–Option–V**); local + global monitors |
 | Startup | Optional **start at login** |
 | Persistence | Optional history across reboots + safely movable custom storage directory |
 | Privacy | Skips concealed pasteboard types / simple password-like strings |
@@ -33,7 +39,7 @@ Built as a **single-file** Swift/SwiftUI app (no Xcode project). Compiled locall
 
 ## Requirements
 
-- macOS with Swift toolchain (`swiftc`) and standard CLI tools (`sips`, `iconutil`)
+- macOS with the Swift toolchain (`swiftc`) and `sips`
 - **Accessibility** permission for:
   - Global shortcut while other apps are focused
   - Auto-paste (simulated ⌘V)
@@ -46,17 +52,17 @@ System Settings → Privacy & Security → Accessibility
 ## Build & run
 
 ```bash
-cd /path/to/ClipMonster
+cd "/path/to/ClipMonster 2.0"
 ./build_app.sh
-open dist/ClipMonster.app
+open "dist/ClipMonster 2.0.app"
 ```
 
-Quit any already-running ClipMonster before opening a new build.
+Quit any already-running ClipMonster 2.0 build before opening a new build. The original ClipMonster can remain open.
 
 **Output**
 
-- `dist/ClipMonster.app`
-- `dist/ClipMonster.zip`  
+- `dist/ClipMonster 2.0.app`
+- `dist/ClipMonster 2.0.zip`
 (`dist/` is gitignored)
 
 ---
@@ -70,6 +76,7 @@ Quit any already-running ClipMonster before opening a new build.
 5. **Search** at the top; use ↑/↓ and Return without the mouse.
 6. On an **image** row:
    - **Click thumbnail** or **eye** / **Space** → large in-app preview  
+   - **Annotate** → pen / arrow / box / text editor → **Save Annotated Copy**
    - **Double-click** thumbnail/row or **↗** button → open in **Preview.app**  
    - **Folder** button → reveal the image PNG in **Finder**  
    - **Two documents** button → copy the image path for a CLI  
@@ -94,6 +101,19 @@ Quit any already-running ClipMonster before opening a new build.
 | Double-click **file** row | Opens the file in its default app |
 
 Thumbnails in the list are **56×56**. Overlay can show a short OCR snippet when available.
+
+## Annotating a capture
+
+1. Open an image preview from its thumbnail, eye button, or Space.
+2. Click **Annotate**.
+3. Select the Select, Pen, Arrow, Box, or Text **icon**; the selected icon is highlighted. Choose a color and line width. Text uses the value in the Text field and is placed with a click.
+4. Use **Select** (cursor icon) to click an existing annotation, then drag it to reposition it.
+5. Selected text, boxes, and pen strokes show a dashed border: drag a square corner handle to resize or the round handle above it to rotate. Arrows use tail and tip handles to reshape their length and direction.
+6. With an annotation selected, use its inspector to change its color, scale, rotation, or delete it.
+   - Selecting text focuses an editable text field in the inspector; type to update the words.
+7. Use **Undo** or **Clear** as needed, then choose **Save Annotated Copy**.
+
+The original screenshot stays intact. **Save Annotated Copy** closes the editor and returns you to the history list, where the new flattened PNG is the first item. It is also placed on the system clipboard, follows the current persistence setting/location, and can be copied, dragged, opened in Preview, or revealed in Finder like any other capture.
 
 ---
 
@@ -128,16 +148,16 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#6-ocr-vision).
 | Mode | Location |
 |------|----------|
 | Persistence **off** | Memory only (Finder reveal makes a temporary PNG when needed) |
-| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster/<UUID>.png` + `index.json` (includes `ocrText` / `imageHash` for images) |
+| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster 2.0/<UUID>.png` + `index.json` (includes `ocrText` / `imageHash` for images) |
 | Persistence **on** (custom) | Choose a writable directory in Preferences; current history is copied there and ClipMonster's previous files are removed without touching unrelated files |
-| During drag / Preview open | `$TMPDIR/clipboard-*.png` (and preview temps) |
+| During drag / Preview open | `$TMPDIR/clipmonster2-*.png` (and preview temps) |
 
 In **Preferences → History Limits**, enable **Keep unlimited history** to retain every captured item until it is deleted or purged. Enable **Keep history across reboots** as well to retain that history on disk.
 
-In **Preferences → Global Shortcut**, **Paste latest image path** defaults to **Command–Shift–V**. It captures a just-taken screenshot if necessary, puts its PNG path on the clipboard, and types that path into the focused terminal or other CLI application. Accessibility permission is required.
+In **Preferences → Global Shortcut**, the 2.0 working copy defaults to **Control–Option–V** for opening the popover and **Command–Option–Shift–V** for pasting the latest image path. These avoid conflicting with the original app while both are running. It captures a just-taken screenshot if necessary, puts its PNG path on the clipboard, and types that path into the focused terminal or other CLI application. Accessibility permission is required.
 
 Login agent (fallback path):  
-`~/Library/LaunchAgents/com.sashornock.ClipMonster.plist`
+`~/Library/LaunchAgents/com.sashornock.ClipMonster2.plist`
 
 ---
 
@@ -146,23 +166,29 @@ Login agent (fallback path):
 - History limit or unlimited retention  
 - Auto-paste / Auto-OCR  
 - Global shortcut recorder  
-- Latest-image-path paste shortcut (default Command–Shift–V)  
+- Latest-image-path paste shortcut (default Command–Option–Shift–V)
 - Start at login  
 - Keep history across reboots + storage location  
 - Image-row Finder reveal  
 - Accessibility deep-link  
 - Purge all data  
 
-UI: fixed header (**Done** in prefs) + **scrollable** body + fixed footer (**Quit ClipMonster**).
+UI: fixed header (**Done** in prefs) + **scrollable** body + fixed footer (**Quit ClipMonster 2.0**).
 
 ---
 
 ## Project layout
 
 ```
-ClipMonster/
-├── build_app.sh           # swiftc → dist/ClipMonster.app (+ Vision, ServiceManagement)
-├── src/ClipMonster.swift  # Entire app
+ClipMonster 2.0/
+├── build_app.sh           # swiftc → dist/ClipMonster 2.0.app (+ Vision, ServiceManagement)
+├── src/
+│   ├── ClipMonster.swift  # App entry point
+│   ├── App/               # Menu-bar lifecycle and shortcut registration
+│   ├── Models/            # Clipboard, persistence, and shortcut data
+│   ├── Services/          # Capture, storage, OCR, exports, login, drag support
+│   └── Views/             # Popover, history, preview, preferences, controls
+├── Scripts/                # Deterministic ICNS packager
 ├── img/                   # Icon source (Clipmonster.jpg)
 ├── docs/
 │   ├── ARCHITECTURE.md
@@ -185,4 +211,4 @@ ClipMonster/
 
 ## License / status
 
-Personal / production tooling. Not notarized by default — for local use or ad-hoc sharing via `dist/ClipMonster.zip`.
+Personal / production tooling. Not notarized by default — for local use or ad-hoc sharing via `dist/ClipMonster 2.0.zip`.
