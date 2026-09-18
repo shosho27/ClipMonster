@@ -1,18 +1,24 @@
 import Cocoa
-import CryptoKit
 
 struct ClipboardItem: Identifiable {
     let id: UUID
     let text: String?
-    let image: NSImage?
+    /// Small ImageIO downsample for the history list. Never the full screenshot.
+    let thumbnail: NSImage?
+    /// PNG on disk. Full pixels are loaded only for markup, copy, or Preview.
+    var imageFileURL: URL?
     let fileURL: URL?
     let timestamp: Date
     /// OCR text extracted from image (Vision).
-    var ocrText: String?
-    /// Stable content hash for image de-dupe.
-    var imageHash: String?
+    var ocrText: String? = nil
+    /// SHA-256 of the PNG file bytes, for de-dupe.
+    var imageHash: String? = nil
     /// True while Vision OCR is running for this item.
     var isOCRing: Bool = false
+    var pixelWidth: Int = 0
+    var pixelHeight: Int = 0
+    
+    var hasImage: Bool { imageFileURL != nil }
     
     var searchableText: String {
         var parts: [String] = []
@@ -22,7 +28,7 @@ struct ClipboardItem: Identifiable {
             parts.append(fileURL.lastPathComponent)
             parts.append(fileURL.path)
         }
-        if image != nil { parts.append("image") }
+        if hasImage { parts.append("image") }
         return parts.joined(separator: " ")
     }
     
@@ -32,10 +38,25 @@ struct ClipboardItem: Identifiable {
         return searchableText.localizedCaseInsensitiveContains(q)
     }
     
+    func loadFullImage() -> NSImage? {
+        guard let url = imageFileURL else { return nil }
+        return NSImage(contentsOf: url)
+    }
+    
+    func previewImage() -> NSImage? {
+        guard let url = imageFileURL else { return nil }
+        return ImageStore.downsampledImage(at: url, maxPixel: ImageStore.previewMaxPixel) ?? thumbnail
+    }
+    
+    func ocrImage() -> NSImage? {
+        guard let url = imageFileURL else { return nil }
+        return ImageStore.downsampledImage(at: url, maxPixel: ImageStore.ocrMaxPixel)
+    }
+    
     /// Build an `NSItemProvider` suitable for dragging into Finder, design apps, Terminal, etc.
     func makeDragItemProvider() -> NSItemProvider {
-        if let image = image {
-            return Self.imageItemProvider(image)
+        if let imageURL = imageFileURL {
+            return Self.imageFileProvider(imageURL)
         }
         if let fileURL = fileURL {
             return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
@@ -52,18 +73,14 @@ struct ClipboardItem: Identifiable {
         return f
     }()
     
-    private static func imageItemProvider(_ image: NSImage) -> NSItemProvider {
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            return NSItemProvider(object: image)
+    private static func imageFileProvider(_ imageURL: URL) -> NSItemProvider {
+        guard FileManager.default.fileExists(atPath: imageURL.path) else {
+            return NSItemProvider()
         }
         
-        // Human-readable temp name for Terminal path drops
         let stamp = dragDateFormatter.string(from: Date())
         let fileName = "clipmonster2-\(stamp).png"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        // Avoid clobbering if two drags land in the same second
         let finalURL: URL
         if FileManager.default.fileExists(atPath: tempURL.path) {
             finalURL = FileManager.default.temporaryDirectory
@@ -73,30 +90,20 @@ struct ClipboardItem: Identifiable {
         }
         
         do {
-            try pngData.write(to: finalURL)
+            try FileManager.default.copyItem(at: imageURL, to: finalURL)
         } catch {
-            return NSItemProvider(object: image)
+            return NSItemProvider(contentsOf: imageURL) ?? NSItemProvider()
         }
         
         let provider = NSItemProvider(contentsOf: finalURL) ?? NSItemProvider()
         provider.suggestedName = fileName
         
         provider.registerDataRepresentation(forTypeIdentifier: "public.png", visibility: .all) { completion in
-            completion(pngData, nil)
+            completion(try? Data(contentsOf: imageURL, options: [.mappedIfSafe]), nil)
             return nil
         }
-        provider.registerObject(image, visibility: .all)
         provider.registerObject(finalURL as NSURL, visibility: .all)
         
         return provider
     }
-    
-    static func hashImage(_ image: NSImage) -> String? {
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
-        let digest = SHA256.hash(data: png)
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
 }
-

@@ -6,6 +6,8 @@ The original remains at `../ClipMonster/`; make feature changes in this director
 
 A lightweight **macOS menu bar clipboard manager**. Keeps a history of copied text, images, and files so you can re-copy, multi-select, search, drag them out, preview/open screenshots, OCR text, or auto-paste into the app you were just using.
 
+Screenshots are stored as PNGs on disk. RAM only keeps a small thumbnail per capture (full pixels load for annotate, copy, Preview, and drag).
+
 Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally with `build_app.sh`.
 
 **Starting point:** [github.com/shosho27/ClipMonster](https://github.com/shosho27/ClipMonster)
@@ -17,6 +19,7 @@ Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally w
 | Area | What you get |
 |------|----------------|
 | History | Text, images, file URLs; optional unlimited retention |
+| Memory | Disk-backed PNGs + 128px list thumbnails; not decoded screenshots |
 | UI | Menu bar popover (`LSUIElement` — no Dock icon) |
 | Menu bar icon | Bundled ClipMonster artwork |
 | Click | Re-copy item; optional **auto-paste** (⌘V into previous app) |
@@ -40,6 +43,7 @@ Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally w
 ## Requirements
 
 - macOS with the Swift toolchain (`swiftc`) and `sips`
+- Xcode’s Mac SDK + SwiftUI macro plugin (used automatically by `build_app.sh` when Xcode.app is installed)
 - **Accessibility** permission for:
   - Global shortcut while other apps are focused
   - Auto-paste (simulated ⌘V)
@@ -100,7 +104,7 @@ Quit any already-running ClipMonster 2.0 build before opening a new build. The o
 | **Two documents** button | Copy the PNG's POSIX path for a CLI |
 | Double-click **file** row | Opens the file in its default app |
 
-Thumbnails in the list are **56×56**. Overlay can show a short OCR snippet when available.
+List thumbnails are **56×56**, backed by a **128px** ImageIO downsample of the on-disk PNG. The overlay uses a **~720px** downsample, not the full screenshot. Annotate, copy, Preview.app, and drag load the original PNG.
 
 ## Annotating a capture
 
@@ -126,33 +130,38 @@ OCR turns **pixels in a clipboard image** into **plain text**. It uses **Apple V
 | On demand (default) | Click the viewfinder on an image row |
 | Auto-OCR | Preferences → **Auto-OCR new images** |
 
-**Pipeline:** `NSImage` → `CGImage` → Vision text recognition (background queue) → `ocrText` on the history item → shown under the row, searchable, optionally saved in `index.json`.
+**Pipeline:** on-disk PNG → ImageIO downsample (max 2048px) → `CGImage` → Vision text recognition (background queue) → `ocrText` on the history item → shown under the row, searchable, optionally saved in `index.json`.
 
 - Clicking the **row text** still copies/pastes the **image**.  
 - Use the **doc** button to copy **OCR text**.  
 - Best on clean UI screenshots, slides, logs; weaker on handwriting / tiny / noisy text.
 
-More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#6-ocr-vision).
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#7-ocr-vision).
 
 ---
 
 ## Drag behavior
 
 - **Finder / image apps** — PNG file and/or image data  
-- **Terminal** — **file path** only (not pixels). Temp name like `clipboard-2026-07-21-143022.png` under `$TMPDIR`
+- **Terminal** — **file path** only (not pixels). Temp name like `clipmonster2-2026-09-18-080000.png` under `$TMPDIR`
 
 ---
 
 ## Where data lives on disk
 
+Captured images are **always written as PNG files** while the app is running, so history does not keep decoded bitmaps in RAM. `index.json` is what restores that history after a reboot.
+
 | Mode | Location |
 |------|----------|
-| Persistence **off** | Memory only (Finder reveal makes a temporary PNG when needed) |
-| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster 2.0/<UUID>.png` + `index.json` (includes `ocrText` / `imageHash` for images) |
+| Session files (always) | PNGs named `<UUID>.png` in the current storage directory, plus `index.json` |
+| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster 2.0/` — restored on next launch |
 | Persistence **on** (custom) | Choose a writable directory in Preferences; current history is copied there and ClipMonster's previous files are removed without touching unrelated files |
-| During drag / Preview open | `$TMPDIR/clipmonster2-*.png` (and preview temps) |
+| Persistence **off** | Same PNG + index layout during the session; files are deleted on quit (and leftover files are cleared on the next launch) |
+| During drag | `$TMPDIR/clipmonster2-yyyy-MM-dd-HHmmss.png` (copy of the stored PNG, not a re-encode) |
 
-In **Preferences → History Limits**, enable **Keep unlimited history** to retain every captured item until it is deleted or purged. Enable **Keep history across reboots** as well to retain that history on disk.
+`index.json` image rows store type, filename, timestamp, and optional `ocrText` / `imageHash` / pixel size. Image hashes are SHA-256 of the **PNG file bytes**.
+
+In **Preferences → History Limits**, enable **Keep unlimited history** to retain every captured item until it is deleted or purged. Disk space is the limit; only small thumbnails stay in memory. Enable **Keep history across reboots** as well to restore that history on the next launch.
 
 In **Preferences → Global Shortcut**, the 2.0 working copy defaults to **Control–Option–V** for opening the popover and **Command–Option–Shift–V** for pasting the latest image path. These avoid conflicting with the original app while both are running. It captures a just-taken screenshot if necessary, puts its PNG path on the clipboard, and types that path into the focused terminal or other CLI application. Accessibility permission is required.
 
@@ -181,12 +190,13 @@ UI: fixed header (**Done** in prefs) + **scrollable** body + fixed footer (**Qui
 
 ```
 ClipMonster 2.0/
-├── build_app.sh           # swiftc → dist/ClipMonster 2.0.app (+ Vision, ServiceManagement)
+├── build_app.sh           # swiftc → dist/ClipMonster 2.0.app (+ Vision, ServiceManagement, ImageIO)
 ├── src/
 │   ├── ClipMonster.swift  # App entry point
 │   ├── App/               # Menu-bar lifecycle and shortcut registration
+│   ├── Annotation/        # Markup editor and flattened-PNG renderer
 │   ├── Models/            # Clipboard, persistence, and shortcut data
-│   ├── Services/          # Capture, storage, OCR, exports, login, drag support
+│   ├── Services/          # Capture, ImageStore, storage, OCR, exports, login, drag
 │   └── Views/             # Popover, history, preview, preferences, controls
 ├── Scripts/                # Deterministic ICNS packager
 ├── img/                   # Icon source (Clipmonster.jpg)

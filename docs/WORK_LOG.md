@@ -1,5 +1,14 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-09-18 — disk-backed captures (RAM)
+
+- History no longer retains a decoded `NSImage` per screenshot. Each capture is written as `<UUID>.png`; RAM keeps a 128px ImageIO thumbnail plus path/hash/pixel size.
+- New `ImageStore` hashes PNG file bytes (no TIFF round-trip), reads pixel size from ImageIO properties, and downsamples on demand: 720px for the in-app overlay, 2048px for Vision OCR, full file for Annotate / copy / Preview / drag.
+- Drag copies the stored PNG to a dated temp name instead of re-encoding. Copy puts PNG bytes on the pasteboard.
+- Persistence still uses `index.json`; images are always on disk during the session so the list stays small. With **Keep history across reboots** off, those files are removed on quit.
+- Live check after rebuild: ClipMonster 2.0 footprint dropped from ~989 MB (666 MB ImageIO) to **39 MB** with the same 50 history items / 34 images.
+- `build_app.sh` now links ImageIO, passes Xcode’s Mac SDK + SwiftUI macro plugin path, and exits if `swiftc` fails.
+
 ## 2026-08-19 — annotation workflow user-verified
 
 - User exercised the native markup workflow and reported it working after iterative fixes to canvas hit testing, Arrow endpoints, selection, save visibility, text editing, transforms, and direct manipulation handles.
@@ -85,7 +94,7 @@
 ## 2026-07-23
 
 ### Unlimited capture storage & Finder reveal
-- Added **Keep unlimited history** in Preferences; retention is then constrained only by available memory/disk until the user deletes or purges items.
+- Added **Keep unlimited history** in Preferences; retention is then constrained only by available disk until the user deletes or purges items (thumbnails stay in RAM).
 - Storage-folder changes now validate write access, copy the current persisted history to the chosen directory, and remove only ClipMonster-owned files from the old location.
 - Added an image-row **folder** button to reveal the image PNG in Finder; temporary PNGs are created only when persistence is off.
 

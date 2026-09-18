@@ -23,10 +23,27 @@ while IFS= read -r source_file; do
     SWIFT_SOURCES+=("$source_file")
 done < <(find "$SRC_DIR" -type f -name '*.swift' -print | sort)
 
+# Command Line Tools swiftc does not search Xcode's SwiftUI macro plugin path.
+SWIFT_FLAGS=()
+XCODE_MACOS_PLUGINS="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins"
+XCODE_MACOS_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+if [ -d "$XCODE_MACOS_PLUGINS" ]; then
+    SWIFT_FLAGS+=(-plugin-path "$XCODE_MACOS_PLUGINS")
+fi
+if [ -d "$XCODE_MACOS_SDK" ]; then
+    SWIFT_FLAGS+=(-sdk "$XCODE_MACOS_SDK")
+fi
+
 swiftc -parse-as-library "${SWIFT_SOURCES[@]}" \
+    "${SWIFT_FLAGS[@]}" \
     -framework ServiceManagement \
     -framework Vision \
+    -framework ImageIO \
     -o "${MACOS_DIR}/${EXECUTABLE_NAME}"
+if [ $? -ne 0 ]; then
+    echo "Swift compile failed."
+    exit 1
+fi
 
 echo "Creating Info.plist..."
 cat <<EOF > "${CONTENTS_DIR}/Info.plist"

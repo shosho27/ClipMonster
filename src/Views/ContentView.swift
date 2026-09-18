@@ -121,16 +121,16 @@ struct ContentView: View {
                 .background(Color(NSColor.windowBackgroundColor))
             }
             
-            if let previewItem = largePreviewItem, let img = previewItem.image {
+            if let previewItem = largePreviewItem, previewItem.hasImage {
                 LargeImagePreviewOverlay(
-                    image: img,
-                    ocrPreview: previewItem.ocrText,
+                    item: previewItem,
                     onOpenInPreview: {
                         _ = monitor.openInPreview(previewItem)
                     },
                     onAnnotate: {
+                        guard let full = previewItem.loadFullImage() else { return }
                         largePreviewItem = nil
-                        markupRequest = MarkupRequest(image: img) {
+                        markupRequest = MarkupRequest(image: full) {
                             searchText = ""
                             focusedIndex = 0
                             largePreviewItem = nil
@@ -177,7 +177,7 @@ struct ContentView: View {
                 largePreviewItem = nil
                 return
             }
-            if item.image != nil {
+            if item.hasImage {
                 largePreviewItem = item
             } else if item.fileURL != nil {
                 _ = monitor.openInPreview(item)
@@ -199,13 +199,16 @@ struct ContentView: View {
     }
 }
 
-/// Full-size image preview overlaid on the popover.
+/// In-popover preview. Decodes a ~720px downsample, not the full screenshot.
 struct LargeImagePreviewOverlay: View {
-    let image: NSImage
-    let ocrPreview: String?
+    let item: ClipboardItem
     var onOpenInPreview: () -> Void
     var onAnnotate: () -> Void
     var onDismiss: () -> Void
+    @State private var preview: NSImage?
+    
+    private var ocrPreview: String? { item.ocrText }
+    private var displayImage: NSImage? { preview ?? item.thumbnail }
     
     var body: some View {
         ZStack {
@@ -214,12 +217,14 @@ struct LargeImagePreviewOverlay: View {
                 .onTapGesture { onDismiss() }
             
             VStack(spacing: 12) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 320, maxHeight: 380)
-                    .cornerRadius(8)
-                    .shadow(radius: 12)
+                if let image = displayImage {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 320, maxHeight: 380)
+                        .cornerRadius(8)
+                        .shadow(radius: 12)
+                }
                 
                 if let ocr = ocrPreview, !ocr.isEmpty {
                     Text(ocr)
@@ -253,5 +258,11 @@ struct LargeImagePreviewOverlay: View {
             .padding(16)
         }
         .transition(.opacity)
+        .onAppear {
+            if preview == nil {
+                preview = item.previewImage()
+            }
+        }
+        .onDisappear { preview = nil }
     }
 }

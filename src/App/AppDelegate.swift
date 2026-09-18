@@ -141,6 +141,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.popover.performClose(nil)
         }
     }
+    
+    func applicationWillTerminate(_ notification: Notification) {
+        clipboardMonitor.prepareForTermination()
+    }
 
     private static func menuBarArtwork() -> NSImage? {
         guard let url = Bundle.main.url(forResource: "Clipmonster", withExtension: "jpg"),

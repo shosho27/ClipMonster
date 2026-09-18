@@ -8,7 +8,7 @@ struct PreferencesView: View {
             VStack(alignment: .leading, spacing: 14) {
                 prefSection("History Limits") {
                     Toggle("Keep unlimited history", isOn: $monitor.unlimitedHistory)
-                    Text("Stores every captured item until you delete or purge it. Disk space and memory are the only limits.")
+                    Text("Stores every captured item until you delete or purge it. Disk space is the limit; only small thumbnails stay in memory.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

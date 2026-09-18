@@ -23,13 +23,13 @@ ClipMonster 2.0 is a small Swift application using **AppKit** + **SwiftUI**. It 
 | `src/ClipMonster.swift` | SwiftUI app entry point only |
 | `src/App/` | Menu-bar lifecycle, popover, global hotkeys, auto-paste |
 | `src/Models/` | Clipboard, persistence, and shortcut value types |
-| `src/Services/` | Clipboard monitoring, disk storage, OCR, drag support, login item |
+| `src/Services/` | Clipboard monitoring, ImageStore, disk storage, OCR, drag support, login item |
 | `src/Views/` | Content shell, image preview, history, preferences, keyboard controls |
 | `src/Annotation/` | Isolated markup editor, vector-like annotation model, and flattened-PNG renderer |
 
 This boundary keeps UI state, capture/persistence work, and the annotation editor from becoming coupled in one file.
 
-Built with `swiftc` via `build_app.sh` (links **ServiceManagement** + **Vision**). No Xcode project.
+Built with `swiftc` via `build_app.sh` (links **ServiceManagement** + **Vision** + **ImageIO**). No Xcode project. On this host, `build_app.sh` also passes Xcode’s Mac SDK and SwiftUI macro plugin path so Command Line Tools `swiftc` can compile `@State`.
 
 Bundle ID: `com.sashornock.ClipMonster2`
 
@@ -48,52 +48,68 @@ Bundle ID: `com.sashornock.ClipMonster2`
   - Popover → `.applicationDefined` so it stays open while dragging out.
   - On end → `.transient` and close.
 - `autoPasteIntoPreviousApp()`: close popover → activate previous app → `CGEvent` ⌘V.
+- `applicationWillTerminate` → `clipboardMonitor.prepareForTermination()` (save index, or delete session files when persistence is off).
 
 ### 2. ClipboardMonitor (`ObservableObject`)
 
 - Polls `NSPasteboard.general.changeCount` every **0.5s**.
-- On change, reads in order: **image** → **file URL** → **plain text**.
+- On change, reads in order: **PNG/TIFF/image bytes** → **file URL** → **plain text**.
 - Skips sensitive content (`org.nspasteboard.ConcealedType` + password-like heuristic).
-- In-memory `history: [ClipboardItem]` capped by `historyLimit`, or unlimited when the user enables `unlimitedHistory`.
-- **De-dupe:** same text, same file URL, or same **image SHA-256** replaces the prior entry.
-- Optional disk persistence (`keepThroughReboot`):
-  - PNG per image: `~/Library/Application Support/ClipMonster 2.0/<UUID>.png` (or custom `storagePath`)
-  - `index.json` with type, content, timestamp, optional `ocrText` / `imageHash`
+- In-memory `history: [ClipboardItem]` capped by `historyLimit`, or unlimited when the user enables `unlimitedHistory`. Image rows hold a **thumbnail + PNG path**, never a decoded full screenshot.
+- **De-dupe:** same text, same file URL, or same **SHA-256 of PNG file bytes** replaces the prior entry.
+- Images are **always written to disk** as `<UUID>.png` in the current storage directory so RAM stays small. `index.json` is written for the live session; **`keepThroughReboot`** controls whether that index is loaded on the next launch. If persistence is off, session files are deleted on quit.
+  - Default dir: `~/Library/Application Support/ClipMonster 2.0/`
+  - Custom dir: `storagePath`
+  - `index.json` fields: type, content, timestamp, optional `ocrText` / `imageHash` / `pixelWidth` / `pixelHeight`
 - Preferences (UserDefaults): history limit/unlimited mode, auto-paste, auto-OCR, shortcut, storage path, etc.
-- **`openInPreview(_:)`** — resolve/write PNG (persisted path preferred), open with **Preview.app** (`com.apple.Preview`) via `NSWorkspace`.
-- **`revealInFinder(_:)`** — select a persisted (or temporary) image PNG in Finder.
+- **`openInPreview(_:)`** — open the stored PNG with **Preview.app** (`com.apple.Preview`) via `NSWorkspace`.
+- **`revealInFinder(_:)`** — select the stored image PNG in Finder.
 - **`copyLatestImagePathToClipboard()`** — resolves the latest image to a PNG path; reads a just-taken screenshot from the pasteboard immediately rather than waiting for the polling interval.
-- **`changeStorageDirectory(to:)`** — validates a user-selected directory, copies the current persisted history, then removes only ClipMonster-owned files from the prior location.
+- **`changeStorageDirectory(to:)`** — validates a user-selected directory, copies current PNG files, rewrites `imageFileURL`s, then removes only ClipMonster-owned files from the prior location.
 
-### 3. ClipboardItem & drag export
+### 3. ImageStore
 
-Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, `isOCRing`.
+`src/Services/ImageStore.swift` is the only place that turns pasteboard bytes into PNGs and downsamples them:
+
+| Helper | Role |
+|--------|------|
+| `pngFromPasteboard` | Prefer `public.png`, else TIFF→PNG, else `NSImage`→PNG |
+| `hashPNG` / `hashFile` | SHA-256 of PNG bytes (no TIFF round-trip) |
+| `pixelSize` | Width/height from ImageIO properties (no full decode) |
+| `thumbnail` | Max **128px** ImageIO thumbnail for the history list |
+| `downsampledImage` | Max **720px** (in-app preview) or **2048px** (OCR) |
+
+`kCGImageSourceShouldCache` is off so ImageIO does not pin decoded bitmaps.
+
+### 4. ClipboardItem & drag export
+
+Fields include `text`, `thumbnail`, `imageFileURL`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, `isOCRing`, `pixelWidth`, `pixelHeight`. `hasImage` is true when `imageFileURL` is set. `loadFullImage()` is used only by the markup editor.
 
 `searchableText` joins text + OCR + path components for the search field.
 
 `makeDragItemProvider()`:
 
-- **Images:** write temp PNG named `clipmonster2-yyyy-MM-dd-HHmmss.png`, base provider on **file URL** (Terminal/Finder), plus `public.png` data and `NSImage`.
+- **Images:** copy the stored PNG to a temp file named `clipmonster2-yyyy-MM-dd-HHmmss.png` (no re-encode). Provider is the file URL, plus lazily registered `public.png` data.
 - **Files:** provider from existing URL.
 - **Text:** `NSString` provider.
 
 `DragSession` holds the popover open for the drag; `DragTempCleanup` removes old temp PNGs on launch.
 
-### 4. Launch at login (`LaunchAtLogin`)
+### 5. Launch at login (`LaunchAtLogin`)
 
 1. Prefer **`SMAppService.mainApp`** (macOS 13+ Login Items).
 2. Fall back to LaunchAgent:  
    `~/Library/LaunchAgents/com.sashornock.ClipMonster2.plist`
    → `/usr/bin/open <path-to-ClipMonster 2.0.app>` at Aqua session load.
 
-### 5. UI (SwiftUI)
+### 6. UI (SwiftUI)
 
 | Piece | Role |
 |-------|------|
 | `ContentView` | Fixed header + search + flexible middle + fixed footer; hosts large-preview overlay state |
 | `HistoryListView` | Empty / no-match / list with focus highlight |
-| `HistoryItemRow` | 56×56 thumb; click text = copy; thumb = large preview; double-click = Preview.app; eye / ↗ / Finder / Copy Path / OCR / delete |
-| `LargeImagePreviewOverlay` | Dimmed overlay with large image, optional OCR snippet, Open in Preview / Close |
+| `HistoryItemRow` | 56×56 thumb from the 128px downsample; click text = copy; thumb = large preview; double-click = Preview.app; eye / ↗ / Finder / Copy Path / OCR / delete |
+| `LargeImagePreviewOverlay` | Dimmed overlay; loads a ~720px downsample on appear and releases it on dismiss; Annotate loads the full PNG |
 | `MarkupEditorView` | Full-size sheet launched by **Annotate**; Select, pen, arrow, box, text, color, width, undo/clear, transforms, and save |
 | `PreferencesView` | **ScrollView** of settings sections (avoids clipping) |
 | `HistoryKeyHandler` | Local keys: ↑/↓, Return, **Space** (preview), Esc (dismiss overlay first), 1–9 |
@@ -116,10 +132,11 @@ Fields include `text`, `image`, `fileURL`, `timestamp`, `ocrText`, `imageHash`, 
 - Two-documents button → `copyImagePath` → PNG path goes to the clipboard  
 - Row label area single-click → copy + optional auto-paste  
 
-### 6. OCR (Vision)
+### 7. OCR (Vision)
 
 ```
-NSImage → CGImage → VNRecognizeTextRequest (accurate, language correction)
+on-disk PNG → ImageIO downsample (max 2048px) → CGImage
+        → VNRecognizeTextRequest (accurate, language correction)
         → background queue → ocrText on ClipboardItem
 ```
 
@@ -129,7 +146,7 @@ NSImage → CGImage → VNRecognizeTextRequest (accurate, language correction)
 - Search includes `ocrText`; persistence stores it on image rows in `index.json`
 - Fully offline; uses `import Vision` (+ CryptoKit for image hashes)
 
-### 7. Auto-paste
+### 8. Auto-paste
 
 When `autoPaste` is on (default **true**):
 
@@ -140,7 +157,7 @@ When `autoPaste` is on (default **true**):
 
 Requires **Accessibility**.
 
-### 8. Global shortcut
+### 9. Global shortcut
 
 - `CustomShortcut` (keyCode + modifiers) in UserDefaults.
 - Global monitor: works in other apps (needs Accessibility).
@@ -155,19 +172,21 @@ System pasteboard change
         ↓
 ClipboardMonitor.checkForChanges()
         ↓
-De-dupe + insert (+ optional disk save)
-        ↓ optional autoOCR
+ImageStore.pngFromPasteboard → write <UUID>.png → 128px thumbnail
         ↓
-HistoryListView / HistoryItemRow
+De-dupe (PNG SHA-256) + insert + save index
+        ↓ optional autoOCR (2048px downsample)
         ↓
-  click text  → copy (+ auto-paste)
-  thumb/Space → LargeImagePreviewOverlay
-  Annotate → MarkupEditorView → flattened annotated copy → history/storage
-  double-click / ↗ → Preview.app (openInPreview)
-  folder button → Finder (revealInFinder)
+HistoryListView / HistoryItemRow (thumbnails only)
+        ↓
+  click text  → copy PNG bytes / text (+ auto-paste)
+  thumb/Space → LargeImagePreviewOverlay (720px downsample)
+  Annotate → loadFullImage → MarkupEditorView → PNG → history/storage
+  double-click / ↗ → Preview.app (stored PNG)
+  folder button → Finder (stored PNG)
   ⌘⌥⇧V → latest image PNG path → focused CLI
-  drag        → NSItemProvider (file URL + image)
-  OCR         → Vision → ocrText → search / copy text
+  drag        → copy stored PNG to temp → NSItemProvider (file URL)
+  OCR         → 2048px downsample → Vision → ocrText
   shift       → multi-select → copySelected
 ```
 
@@ -178,7 +197,7 @@ HistoryListView / HistoryItemRow
 `build_app.sh`:
 
 1. Clean/create `dist/ClipMonster 2.0.app` layout
-2. `swiftc -parse-as-library` recursively compiles every Swift file below `src/`, with ServiceManagement and Vision linked
+2. `swiftc -parse-as-library` recursively compiles every Swift file below `src/`, linking ServiceManagement, Vision, and ImageIO. When Xcode.app is present, the Mac SDK and SwiftUI macro plugin path are passed so Command Line Tools `swiftc` can expand `@State`. Compile failure aborts the script.
 3. Write `Info.plist` (`LSUIElement`, app icon, bundle id)
 4. Bundle `Clipmonster.jpg` and generate `AppIcon.icns` with `Scripts/make_icns.swift`
 5. Zip `dist/ClipMonster 2.0.zip`

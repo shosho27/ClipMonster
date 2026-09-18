@@ -13,7 +13,7 @@ class ClipboardMonitor: ObservableObject {
         }
     }
     
-    /// When enabled, history is limited only by available memory/disk space.
+    /// When enabled, history is limited only by available disk space.
     @Published var unlimitedHistory: Bool = UserDefaults.standard.bool(forKey: "unlimitedHistory") {
         didSet {
             UserDefaults.standard.set(unlimitedHistory, forKey: "unlimitedHistory")
@@ -24,7 +24,7 @@ class ClipboardMonitor: ObservableObject {
     @Published var keepThroughReboot: Bool = UserDefaults.standard.bool(forKey: "keepThroughReboot") {
         didSet {
             UserDefaults.standard.set(keepThroughReboot, forKey: "keepThroughReboot")
-            if keepThroughReboot { saveAllToDisk() } else { deleteDiskData() }
+            if keepThroughReboot { saveIndex() }
         }
     }
     
@@ -93,8 +93,20 @@ class ClipboardMonitor: ObservableObject {
         }
         
         lastChangeCount = pasteboard.changeCount
-        if keepThroughReboot { loadFromDisk() }
+        if keepThroughReboot {
+            loadFromDisk()
+        } else {
+            deleteDiskData()
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.checkForChanges() }
+    }
+    
+    func prepareForTermination() {
+        if keepThroughReboot {
+            saveIndex()
+        } else {
+            deleteDiskData()
+        }
     }
     
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -136,23 +148,14 @@ class ClipboardMonitor: ObservableObject {
         var newItem: ClipboardItem? = nil
         let newID = UUID()
         
-        if let imgArray = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage], let firstImg = imgArray.first {
-            let hash = ClipboardItem.hashImage(firstImg)
-            newItem = ClipboardItem(
-                id: newID,
-                text: nil,
-                image: firstImg,
-                fileURL: nil,
-                timestamp: Date(),
-                ocrText: nil,
-                imageHash: hash
-            )
+        if let captured = ImageStore.pngFromPasteboard(pasteboard) {
+            newItem = makeImageItem(id: newID, png: captured.data, pixelWidth: captured.pixelWidth, pixelHeight: captured.pixelHeight)
         } else if let urlArray = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], let firstURL = urlArray.first {
-            newItem = ClipboardItem(id: newID, text: nil, image: nil, fileURL: firstURL, timestamp: Date())
+            newItem = ClipboardItem(id: newID, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: firstURL, timestamp: Date())
         } else if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                newItem = ClipboardItem(id: newID, text: trimmed, image: nil, fileURL: nil, timestamp: Date())
+                newItem = ClipboardItem(id: newID, text: trimmed, thumbnail: nil, imageFileURL: nil, fileURL: nil, timestamp: Date())
             }
         }
         
@@ -177,12 +180,9 @@ class ClipboardMonitor: ObservableObject {
         
         history.insert(item, at: 0)
         trimHistoryIfNeeded()
-        if keepThroughReboot {
-            saveItemToDisk(item)
-            saveIndex()
-        }
+        saveIndex()
         
-        if autoOCR, item.image != nil {
+        if autoOCR, item.hasImage {
             runOCR(for: item.id)
         }
     }
@@ -191,15 +191,14 @@ class ClipboardMonitor: ObservableObject {
     /// and makes that image the current system clipboard value.
     @discardableResult
     func addAnnotatedImage(_ image: NSImage) -> ClipboardItem {
-        let item = ClipboardItem(
-            id: UUID(),
-            text: nil,
-            image: image,
-            fileURL: nil,
-            timestamp: Date(),
-            ocrText: nil,
-            imageHash: ClipboardItem.hashImage(image)
-        )
+        let id = UUID()
+        let item: ClipboardItem
+        if let png = ImageStore.pngData(from: image),
+           let created = makeImageItem(id: id, png: png) {
+            item = created
+        } else {
+            item = ClipboardItem(id: id, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: nil, timestamp: Date())
+        }
         insertItem(item)
         copyToClipboard(item: item)
         return item
@@ -207,9 +206,13 @@ class ClipboardMonitor: ObservableObject {
     
     func copyToClipboard(item: ClipboardItem) {
         pasteboard.clearContents()
-        if let text = item.text { pasteboard.setString(text, forType: .string) }
-        else if let image = item.image { pasteboard.writeObjects([image]) }
-        else if let url = item.fileURL { pasteboard.writeObjects([url as NSURL]) }
+        if let text = item.text {
+            pasteboard.setString(text, forType: .string)
+        } else if let url = item.imageFileURL, let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
+            pasteboard.setData(data, forType: .png)
+        } else if let url = item.fileURL {
+            pasteboard.writeObjects([url as NSURL])
+        }
         lastChangeCount = pasteboard.changeCount
     }
     
@@ -225,11 +228,10 @@ class ClipboardMonitor: ObservableObject {
     /// Write image to a temp (or persisted) PNG and open it in Preview.app.
     @discardableResult
     func openInPreview(_ item: ClipboardItem) -> Bool {
-        if let fileURL = item.fileURL, item.image == nil {
+        if let fileURL = item.fileURL, !item.hasImage {
             return NSWorkspace.shared.open(fileURL)
         }
-        guard let image = item.image else { return false }
-        guard let url = fileURLForImagePreview(item: item, image: image) else { return false }
+        guard let url = fileURLForImagePreview(item: item) else { return false }
         
         if let previewApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") {
             let config = NSWorkspace.OpenConfiguration()
@@ -244,12 +246,10 @@ class ClipboardMonitor: ObservableObject {
     @discardableResult
     func revealInFinder(_ item: ClipboardItem) -> Bool {
         let url: URL?
-        if let fileURL = item.fileURL, item.image == nil {
+        if let fileURL = item.fileURL, !item.hasImage {
             url = fileURL
-        } else if let image = item.image {
-            url = fileURLForImagePreview(item: item, image: image)
         } else {
-            url = nil
+            url = fileURLForImagePreview(item: item)
         }
         guard let url = url else { return false }
         NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -260,8 +260,7 @@ class ClipboardMonitor: ObservableObject {
     /// text-only applications. A temporary PNG is used when persistence is off.
     @discardableResult
     func copyImagePath(_ item: ClipboardItem) -> Bool {
-        guard let image = item.image,
-              let url = fileURLForImagePreview(item: item, image: image) else { return false }
+        guard let url = fileURLForImagePreview(item: item) else { return false }
         pasteboard.clearContents()
         pasteboard.setString(url.path, forType: .string)
         lastChangeCount = pasteboard.changeCount
@@ -273,45 +272,27 @@ class ClipboardMonitor: ObservableObject {
     @discardableResult
     func copyLatestImagePathToClipboard() -> Bool {
         if pasteboard.changeCount != lastChangeCount,
-           let images = pasteboard.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
-           let image = images.first {
-            let hash = ClipboardItem.hashImage(image)
+           let captured = ImageStore.pngFromPasteboard(pasteboard) {
+            let hash = ImageStore.hashPNG(captured.data)
             if let existing = history.first(where: { $0.imageHash == hash }) {
                 lastChangeCount = pasteboard.changeCount
                 return copyImagePath(existing)
             }
-            let item = ClipboardItem(
-                id: UUID(), text: nil, image: image, fileURL: nil,
-                timestamp: Date(), ocrText: nil, imageHash: hash
-            )
-            insertItem(item)
-            lastChangeCount = pasteboard.changeCount
-            return copyImagePath(item)
+            if let item = makeImageItem(id: UUID(), png: captured.data, pixelWidth: captured.pixelWidth, pixelHeight: captured.pixelHeight) {
+                insertItem(item)
+                lastChangeCount = pasteboard.changeCount
+                return copyImagePath(item)
+            }
         }
-        guard let latestImage = history.first(where: { $0.image != nil }) else { return false }
+        guard let latestImage = history.first(where: { $0.hasImage }) else { return false }
         return copyImagePath(latestImage)
     }
     
-    private func fileURLForImagePreview(item: ClipboardItem, image: NSImage) -> URL? {
-        // Prefer persisted PNG when available
-        let persisted = dataURL.appendingPathComponent("\(item.id.uuidString).png")
-        if FileManager.default.fileExists(atPath: persisted.path) {
-            return persisted
-        }
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
-        let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: " ", with: "-")
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("clipmonster2-preview-\(stamp).png")
-        do {
-            try png.write(to: url)
+    private func fileURLForImagePreview(item: ClipboardItem) -> URL? {
+        if let url = item.imageFileURL, FileManager.default.fileExists(atPath: url.path) {
             return url
-        } catch {
-            return nil
         }
+        return nil
     }
     
     func toggleSelection(for item: ClipboardItem) {
@@ -328,7 +309,9 @@ class ClipboardMonitor: ObservableObject {
         
         for item in itemsToCopy {
             if let txt = item.text { textComponents.append(txt) }
-            if let img = item.image { objectsToWrite.append(img) }
+            if let url = item.imageFileURL, let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
+                pasteboard.setData(data, forType: .png)
+            }
             if let url = item.fileURL { objectsToWrite.append(url as NSURL) }
         }
         if !textComponents.isEmpty { objectsToWrite.append(textComponents.joined(separator: "\n\n") as NSString) }
@@ -341,10 +324,8 @@ class ClipboardMonitor: ObservableObject {
     func deleteItem(_ item: ClipboardItem) {
         history.removeAll { $0.id == item.id }
         selectedItems.remove(item.id)
-        if keepThroughReboot {
-            deleteDiskItem(item.id)
-            saveIndex()
-        }
+        deleteDiskItem(item.id)
+        saveIndex()
     }
     
     func purgeAll() {
@@ -371,21 +352,34 @@ class ClipboardMonitor: ObservableObject {
         }
         
         let previousStoragePath = storagePath
-        storagePath = destination.path
-        if keepThroughReboot {
-            saveAllToDisk()
-            deleteDiskData(at: source, removeDirectory: previousStoragePath.isEmpty)
+        for item in history {
+            guard let src = item.imageFileURL else { continue }
+            let destFile = destination.appendingPathComponent("\(item.id.uuidString).png")
+            if src.standardizedFileURL != destFile {
+                try? FileManager.default.copyItem(at: src, to: destFile)
+            }
         }
+        
+        storagePath = destination.path
+        history = history.map { item in
+            guard item.hasImage else { return item }
+            var copy = item
+            copy.imageFileURL = destination.appendingPathComponent("\(item.id.uuidString).png")
+            return copy
+        }
+        saveIndex()
+        deleteDiskData(at: source, removeDirectory: previousStoragePath.isEmpty)
         storageError = nil
     }
     
     // MARK: - OCR
     
     func runOCR(for id: UUID) {
-        guard let index = history.firstIndex(where: { $0.id == id }),
-              let image = history[index].image else { return }
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        guard history[index].hasImage else { return }
         if history[index].isOCRing { return }
         if history[index].ocrText != nil { return }
+        guard let image = history[index].ocrImage() else { return }
         
         history[index].isOCRing = true
         ImageOCR.recognizeText(in: image) { [weak self] text in
@@ -393,13 +387,14 @@ class ClipboardMonitor: ObservableObject {
                   let idx = self.history.firstIndex(where: { $0.id == id }) else { return }
             self.history[idx].isOCRing = false
             self.history[idx].ocrText = text
-            if self.keepThroughReboot { self.saveIndex() }
+            self.saveIndex()
         }
     }
     
     func forceRunOCR(for id: UUID) {
-        guard let index = history.firstIndex(where: { $0.id == id }),
-              let image = history[index].image else { return }
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        guard history[index].hasImage else { return }
+        guard let image = history[index].ocrImage() else { return }
         history[index].isOCRing = true
         history[index].ocrText = nil
         ImageOCR.recognizeText(in: image) { [weak self] text in
@@ -407,7 +402,7 @@ class ClipboardMonitor: ObservableObject {
                   let idx = self.history.firstIndex(where: { $0.id == id }) else { return }
             self.history[idx].isOCRing = false
             self.history[idx].ocrText = text
-            if self.keepThroughReboot { self.saveIndex() }
+            self.saveIndex()
         }
     }
     
@@ -432,10 +427,32 @@ class ClipboardMonitor: ObservableObject {
         } catch { return false }
     }
     
-    private func saveAllToDisk() {
-        guard isDriveAvailable() else { return }
-        for item in history { saveItemToDisk(item) }
-        saveIndex()
+    private func makeImageItem(id: UUID, png: Data, pixelWidth: Int? = nil, pixelHeight: Int? = nil, timestamp: Date = Date(), ocrText: String? = nil) -> ClipboardItem? {
+        guard isDriveAvailable() else { return nil }
+        let url = dataURL.appendingPathComponent("\(id.uuidString).png")
+        do {
+            try png.write(to: url, options: .atomic)
+        } catch {
+            return nil
+        }
+        let size: (width: Int, height: Int)
+        if let w = pixelWidth, let h = pixelHeight, w > 0, h > 0 {
+            size = (w, h)
+        } else {
+            size = ImageStore.pixelSize(of: png) ?? ImageStore.pixelSize(at: url) ?? (0, 0)
+        }
+        return ClipboardItem(
+            id: id,
+            text: nil,
+            thumbnail: ImageStore.thumbnail(at: url),
+            imageFileURL: url,
+            fileURL: nil,
+            timestamp: timestamp,
+            ocrText: ocrText,
+            imageHash: ImageStore.hashPNG(png),
+            pixelWidth: size.width,
+            pixelHeight: size.height
+        )
     }
 
     private func trimHistoryIfNeeded() {
@@ -445,24 +462,16 @@ class ClipboardMonitor: ObservableObject {
             selectedItems.remove(removed.id)
             deleteDiskItem(removed.id)
         }
-        if keepThroughReboot { saveIndex() }
-    }
-    
-    private func saveItemToDisk(_ item: ClipboardItem) {
-        guard isDriveAvailable() else { return }
-        if let img = item.image, let tiff = img.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-           let png = bitmap.representation(using: .png, properties: [:]) {
-            try? png.write(to: dataURL.appendingPathComponent("\(item.id.uuidString).png"))
-        }
+        saveIndex()
     }
     
     private func saveIndex() {
         guard isDriveAvailable() else { return }
         let persisted = history.map { item -> PersistedItem in
             if let t = item.text {
-                return PersistedItem(id: item.id, type: "text", content: t, timestamp: item.timestamp, ocrText: nil, imageHash: nil)
+                return PersistedItem(id: item.id, type: "text", content: t, timestamp: item.timestamp, ocrText: nil, imageHash: nil, pixelWidth: nil, pixelHeight: nil)
             } else if let u = item.fileURL {
-                return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp, ocrText: nil, imageHash: nil)
+                return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp, ocrText: nil, imageHash: nil, pixelWidth: nil, pixelHeight: nil)
             } else {
                 return PersistedItem(
                     id: item.id,
@@ -470,7 +479,9 @@ class ClipboardMonitor: ObservableObject {
                     content: "\(item.id.uuidString).png",
                     timestamp: item.timestamp,
                     ocrText: item.ocrText,
-                    imageHash: item.imageHash
+                    imageHash: item.imageHash,
+                    pixelWidth: item.pixelWidth > 0 ? item.pixelWidth : nil,
+                    pixelHeight: item.pixelHeight > 0 ? item.pixelHeight : nil
                 )
             }
         }
@@ -483,22 +494,30 @@ class ClipboardMonitor: ObservableObject {
             var loaded: [ClipboardItem] = []
             for p in persisted {
                 if p.type == "text" {
-                    loaded.append(ClipboardItem(id: p.id, text: p.content, image: nil, fileURL: nil, timestamp: p.timestamp))
+                    loaded.append(ClipboardItem(id: p.id, text: p.content, thumbnail: nil, imageFileURL: nil, fileURL: nil, timestamp: p.timestamp))
                 } else if p.type == "url", let url = URL(string: p.content) {
-                    loaded.append(ClipboardItem(id: p.id, text: nil, image: nil, fileURL: url, timestamp: p.timestamp))
+                    loaded.append(ClipboardItem(id: p.id, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: url, timestamp: p.timestamp))
                 } else if p.type == "image" {
-                    if let img = NSImage(contentsOf: dataURL.appendingPathComponent(p.content)) {
-                        let hash = p.imageHash ?? ClipboardItem.hashImage(img)
-                        loaded.append(ClipboardItem(
-                            id: p.id,
-                            text: nil,
-                            image: img,
-                            fileURL: nil,
-                            timestamp: p.timestamp,
-                            ocrText: p.ocrText,
-                            imageHash: hash
-                        ))
+                    let url = dataURL.appendingPathComponent(p.content)
+                    guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                    let size: (Int, Int)
+                    if let w = p.pixelWidth, let h = p.pixelHeight, w > 0, h > 0 {
+                        size = (w, h)
+                    } else {
+                        size = ImageStore.pixelSize(at: url) ?? (0, 0)
                     }
+                    loaded.append(ClipboardItem(
+                        id: p.id,
+                        text: nil,
+                        thumbnail: ImageStore.thumbnail(at: url),
+                        imageFileURL: url,
+                        fileURL: nil,
+                        timestamp: p.timestamp,
+                        ocrText: p.ocrText,
+                        imageHash: ImageStore.hashFile(at: url) ?? p.imageHash,
+                        pixelWidth: size.0,
+                        pixelHeight: size.1
+                    ))
                 }
             }
             if !unlimitedHistory, loaded.count > historyLimit {

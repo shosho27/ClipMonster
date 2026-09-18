@@ -63,11 +63,11 @@ struct HistoryItemRow: View {
     @State private var showCheckmark = false
     
     private var canDrag: Bool {
-        item.image != nil || item.fileURL != nil || item.text != nil
+        item.hasImage || item.fileURL != nil || item.text != nil
     }
     
     private var dragHelp: String {
-        if item.image != nil {
+        if item.hasImage {
             return "Click to copy · Double-click opens Preview · Space / eye for large preview"
         }
         if item.fileURL != nil {
@@ -81,39 +81,46 @@ struct HistoryItemRow: View {
         
         HStack(spacing: 4) {
             // Thumbnail (images only): click = large preview, double-click = Preview.app
-            if let img = item.image {
-                Image(nsImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 56, height: 56)
-                    .clipped()
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    )
-                    .help("Click: large preview · Double-click: open in Preview")
-                    .onTapGesture(count: 2) { onOpenInPreview() }
-                    .onTapGesture(count: 1) { onShowLargePreview() }
-                    .onDrag {
-                        DragSession.begin()
-                        return item.makeDragItemProvider()
-                    } preview: {
-                        dragPreview
+            if item.hasImage {
+                Group {
+                    if let img = item.thumbnail {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "photo")
+                            .foregroundColor(.secondary)
                     }
+                }
+                .frame(width: 56, height: 56)
+                .clipped()
+                .cornerRadius(6)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+                .help("Click: large preview · Double-click: open in Preview")
+                .onTapGesture(count: 2) { onOpenInPreview() }
+                .onTapGesture(count: 1) { onShowLargePreview() }
+                .onDrag {
+                    DragSession.begin()
+                    return item.makeDragItemProvider()
+                } preview: {
+                    dragPreview
+                }
             }
             
             // Main row area: click = copy/paste, double-click = Preview for images/files
             HStack(spacing: 8) {
-                if let img = item.image {
+                if item.hasImage {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Image").font(.subheadline)
                         if item.isOCRing {
                             Text("OCR…").font(.caption).foregroundColor(.secondary)
                         } else if let ocr = item.ocrText, !ocr.isEmpty {
                             Text(ocr).lineLimit(2).font(.caption).foregroundColor(.secondary)
-                        } else {
-                            Text("\(Int(img.size.width))×\(Int(img.size.height))").font(.caption).foregroundColor(.secondary)
+                        } else if item.pixelWidth > 0, item.pixelHeight > 0 {
+                            Text("\(item.pixelWidth)×\(item.pixelHeight)").font(.caption).foregroundColor(.secondary)
                         }
                     }
                 } else if let url = item.fileURL {
@@ -133,7 +140,7 @@ struct HistoryItemRow: View {
             .contentShape(Rectangle())
             .help(dragHelp)
             .onTapGesture(count: 2) {
-                if item.image != nil || item.fileURL != nil {
+                if item.hasImage || item.fileURL != nil {
                     onOpenInPreview()
                 }
             }
@@ -157,7 +164,7 @@ struct HistoryItemRow: View {
             }
             
             // Image actions: large preview, Preview.app, Finder, OCR, delete
-            if item.image != nil {
+            if item.hasImage {
                 Button(action: { onShowLargePreview() }) {
                     Image(systemName: "eye")
                         .foregroundColor(.secondary)
@@ -237,7 +244,7 @@ struct HistoryItemRow: View {
     
     @ViewBuilder
     private var dragPreview: some View {
-        if let img = item.image {
+        if let img = item.thumbnail {
             Image(nsImage: img)
                 .resizable()
                 .scaledToFit()

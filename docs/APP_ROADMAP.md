@@ -14,7 +14,7 @@ This is the independent 2.0 working copy. The original ClipMonster remains uncha
 
 ## Phase 2: Rich media — done
 
-- [x] Images (`NSImage`) in monitor + UI thumbnails
+- [x] Images in monitor + UI thumbnails (disk-backed PNG + 128px downsample)
 - [x] File URL items
 - [x] Drag-out (file URL for Terminal/Finder; PNG data for image apps)
 - [x] Auto-paste via Accessibility / simulated Cmd+V (preference toggle)
@@ -39,7 +39,7 @@ This is the independent 2.0 working copy. The original ClipMonster remains uncha
 | 1 | Auto-paste on select into previous app | Done |
 | 2 | Search / filter history | Done |
 | 3 | Keyboard navigation (↑/↓, Return, Esc, 1–9) | Done |
-| 4 | Image de-dupe (content hash) | Done |
+| 4 | Image de-dupe (SHA-256 of PNG file bytes) | Done |
 | 5 | Cleaner drag filenames for Terminal | Done |
 | 6 | OCR (Vision) — on-demand + optional auto + searchable | Done |
 | 7 | Local + global shortcut monitors | Done |
@@ -53,6 +53,7 @@ This is the independent 2.0 working copy. The original ClipMonster remains uncha
 
 - [x] Screen-capture markup editor: Select, pen, arrow, box, text, color, width, undo/clear, and annotated-copy save
 - [x] Annotation selection: move, corner resize, rotation handle, arrow endpoints, inspector color/scale/rotation/delete, editable text
+- [x] Disk-backed captures: thumbnails in RAM, full PNG loaded only for preview/markup/OCR/copy/drag
 - [ ] Pin favorite items
 - [ ] Optional: keep popover open after drag
 - [ ] Save image as…

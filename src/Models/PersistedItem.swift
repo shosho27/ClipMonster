@@ -7,5 +7,7 @@ struct PersistedItem: Codable {
     let timestamp: Date
     var ocrText: String?
     var imageHash: String?
+    var pixelWidth: Int?
+    var pixelHeight: Int?
 }
 

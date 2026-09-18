@@ -6,3 +6,5 @@ This folder contains the native markup workflow:
 - `MarkupRenderer.swift` — flattening of the final annotations into a new PNG at source-image resolution.
 
 The original capture is immutable. Saving inserts the flattened annotated copy into ClipMonster 2.0 history and the system clipboard.
+
+The editor receives a full decoded `NSImage` for the duration of the sheet only. History itself stores the PNG on disk and a 128px thumbnail in RAM.
