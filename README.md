@@ -1,14 +1,14 @@
 # ClipMonster 2.0
 
-> **Independent working copy.** This is the sandbox for the markup/annotation work. It has a distinct macOS bundle ID, application-support folder, launch-at-login label, temporary-export prefix, and default shortcuts, so it can run alongside the original **ClipMonster** without altering its files or captured history.
+> **Independent working copy.** Markup, memory, and Mac App Store packaging live here. It has a distinct macOS bundle ID, application-support folder, launch-at-login label, temporary-export prefix, and default shortcuts, so it can run alongside the original **ClipMonster** without altering its files or captured history.
 
 The original remains at `../ClipMonster/`; make feature changes in this directory only.
 
-A lightweight **macOS menu bar clipboard manager**. Keeps a history of copied text, images, and files so you can re-copy, multi-select, search, drag them out, preview/open screenshots, OCR text, or auto-paste into the app you were just using.
+A lightweight **macOS menu bar clipboard manager** (macOS 14+, version **2.0.0**). Keeps a history of copied text, images, and files so you can re-copy, multi-select, search, drag them out, preview/open screenshots, OCR text, or — in the **direct** edition — auto-paste into the app you were just using.
 
 Screenshots are stored as PNGs on disk. RAM only keeps a small thumbnail per capture (full pixels load for annotate, copy, Preview, and drag).
 
-Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally with `build_app.sh`.
+Built as a small Swift/AppKit/SwiftUI app. Local and direct-distribution builds use `build_app.sh`. The Mac App Store edition is `./build_app.sh mas` or the `ClipMonster-MAS` Xcode scheme (`-D MAS`, App Sandbox).
 
 **Starting point:** [github.com/shosho27/ClipMonster](https://github.com/shosho27/ClipMonster)
 
@@ -22,34 +22,35 @@ Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally w
 | Memory | Disk-backed PNGs + 128px list thumbnails; not decoded screenshots |
 | UI | Menu bar popover (`LSUIElement` — no Dock icon) |
 | Menu bar icon | Bundled ClipMonster artwork |
-| Click | Re-copy item; optional **auto-paste** (⌘V into previous app) |
+| Click | Re-copy item. Direct edition: optional **auto-paste** (⌘V). Store edition: copy, then press ⌘V |
 | Image preview | Larger list thumbs; **in-app overlay**; **double-click → Preview.app** |
 | Annotation | Native pen, arrow, box, and text editor; saves an annotated copy without changing the source capture |
-| CLI handoff | Copy an image path manually or paste the latest image path with a global shortcut |
+| CLI handoff | Copy an image path from a row, or a global shortcut for the latest image path (Direct types it; Store leaves it on the clipboard) |
 | Search | Filter by text, filenames, and **OCR text** |
 | Keyboard | ↑/↓, Return, **Space** (preview), Esc, **1–9** |
 | Drag | Drop images/files/text into Finder, Terminal, design apps, etc. |
 | OCR | On-device **Apple Vision** — per-image button or auto-OCR |
 | De-dupe | Images by content hash; text/files by value |
 | Multi-select | Shift-click → “Apply & Copy N Items” |
-| Shortcut | Customizable global hotkey (default **Control–Option–V**); local + global monitors |
-| Startup | Optional **start at login** |
-| Persistence | Optional history across reboots + safely movable custom storage directory |
-| Privacy | Skips concealed pasteboard types / simple password-like strings |
-| Cleanup | Purge all; temp drag PNGs older than 24h removed on launch |
+| Shortcut | Customizable Carbon system hotkeys (default **Control–Option–V** to open; **Command–Option–Shift–V** for the latest image path) |
+| Startup | Optional **start at login** (`SMAppService`; LaunchAgent fallback in the Direct edition only) |
+| Persistence | Optional history across reboots + movable custom storage directory (security-scoped bookmark when sandboxed) |
+| Capture control | **Pause capture** from the header or Preferences |
+| Privacy | Skips concealed / transient / auto-generated pasteboard types, known password managers, and simple password-like strings. In-app privacy policy |
+| Cleanup | Purge all (with confirmation); temp drag PNGs older than 24h removed on launch |
+| First launch | Welcome window points at the menu bar icon (`LSUIElement` — no Dock icon) |
 
 ---
 
 ## Requirements
 
-- macOS with the Swift toolchain (`swiftc`) and `sips`
+- **macOS 14** or later
+- Swift toolchain (`swiftc`) and `sips` for `build_app.sh`
 - Xcode’s Mac SDK + SwiftUI macro plugin (used automatically by `build_app.sh` when Xcode.app is installed)
-- **Accessibility** permission for:
-  - Global shortcut while other apps are focused
-  - Auto-paste (simulated ⌘V)
+- **Accessibility** is required only in the **Direct** edition, and only for auto-paste (simulated ⌘V). Global shortcuts use Carbon hotkeys and work without Accessibility. The Mac App Store edition copies an item to the clipboard; press ⌘V to paste.
 
 System Settings → Privacy & Security → Accessibility  
-(or use **Preferences → Permissions → Open System Settings** in the app)
+(or **Preferences → Permissions → Open System Settings** in the Direct edition)
 
 ---
 
@@ -57,9 +58,20 @@ System Settings → Privacy & Security → Accessibility
 
 ```bash
 cd "/path/to/ClipMonster 2.0"
-./build_app.sh
+./build_app.sh          # direct edition (auto-paste on)
+./build_app.sh mas      # Store edition (sandboxed, copy then ⌘V)
 open "dist/ClipMonster 2.0.app"
 ```
+
+Xcode (needed for App Store archive / TestFlight):
+
+```bash
+open ClipMonster.xcodeproj
+```
+
+Schemes: **ClipMonster** (Debug/Release, direct) and **ClipMonster-MAS** (MacAppStore configuration, `-D MAS` + App Sandbox). Archive **ClipMonster-MAS** in Organizer on the **home Mac**, signed into the home Apple Developer Program team. This laptop only has a free Personal Team (`5V68L429TM`) and cannot upload to App Store Connect.
+
+If `xcodebuild` asks you to agree to the Xcode license, run `sudo xcodebuild -license` (requires the active developer directory to be `/Applications/Xcode.app/Contents/Developer`).
 
 Quit any already-running ClipMonster 2.0 build before opening a new build. The original ClipMonster can remain open.
 
@@ -69,23 +81,26 @@ Quit any already-running ClipMonster 2.0 build before opening a new build. The o
 - `dist/ClipMonster 2.0.zip`
 (`dist/` is gitignored)
 
+A 1024×1024 App Store icon PNG is at `Resources/AppStoreIcon.png` (upscaled from the 960px source). Replace it with a true 1024 asset on Apple's icon grid before submitting.
+
 ---
 
 ## Quick usage
 
-1. Copy text, screenshots, or files as usual — they appear in ClipMonster history.
-2. Open the popover via the menu bar icon or your global shortcut.
-3. **Click** the row text area → copy (and auto-paste if enabled).
-4. **Drag** a row → drop into another app (Terminal gets a **file path** for images).
-5. **Search** at the top; use ↑/↓ and Return without the mouse.
-6. On an **image** row:
+1. First launch shows a welcome window: ClipMonster lives in the **menu bar** (no Dock icon).
+2. Copy text, screenshots, or files as usual — they appear in ClipMonster history. Pause capture from the header pause button or Preferences if you want copies ignored.
+3. Open the popover via the menu bar icon or your global shortcut (default **Control–Option–V**).
+4. **Click** the row text area → copy. Direct edition auto-pastes if that preference is on; Store edition returns focus so you can press ⌘V.
+5. **Drag** a row → drop into another app (Terminal gets a **file path** for images).
+6. **Search** at the top; use ↑/↓ and Return without the mouse.
+7. On an **image** row:
    - **Click thumbnail** or **eye** / **Space** → large in-app preview  
    - **Annotate** → pen / arrow / box / text editor → **Save Annotated Copy**
    - **Double-click** thumbnail/row or **↗** button → open in **Preview.app**  
    - **Folder** button → reveal the image PNG in **Finder**  
    - **Two documents** button → copy the image path for a CLI  
    - **Viewfinder** → run OCR · **Doc** → copy OCR text  
-7. **Gear** → Preferences (scrollable; **Done** / **Quit** always visible).
+8. **Gear** → Preferences (scrollable; **Done** / **Quit** always visible). Purge asks for confirmation.
 
 ---
 
@@ -154,35 +169,37 @@ Captured images are **always written as PNG files** while the app is running, so
 | Mode | Location |
 |------|----------|
 | Session files (always) | PNGs named `<UUID>.png` in the current storage directory, plus `index.json` |
-| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster 2.0/` — restored on next launch |
-| Persistence **on** (custom) | Choose a writable directory in Preferences; current history is copied there and ClipMonster's previous files are removed without touching unrelated files |
+| Persistence **on** (default path) | `~/Library/Application Support/ClipMonster 2.0/` in the Direct edition; the same folder name inside the App Sandbox container in the Store edition |
+| Persistence **on** (custom) | Choose a writable directory in Preferences (bookmarked for sandbox access); current history is copied there and ClipMonster's previous files are removed without touching unrelated files |
 | Persistence **off** | Same PNG + index layout during the session; files are deleted on quit (and leftover files are cleared on the next launch) |
 | During drag | `$TMPDIR/clipmonster2-yyyy-MM-dd-HHmmss.png` (copy of the stored PNG, not a re-encode) |
 
-`index.json` image rows store type, filename, timestamp, and optional `ocrText` / `imageHash` / pixel size. Image hashes are SHA-256 of the **PNG file bytes**.
+`index.json` image rows store type, filename, timestamp, and optional `ocrText` / `imageHash` / pixel size. File rows may also store a security-scoped `bookmark`. Image hashes are SHA-256 of the **PNG file bytes**.
+
+A custom storage folder is remembered with a security-scoped bookmark so a sandboxed (Store) build can keep access after relaunch. The Store edition’s default Application Support path is inside its container.
 
 In **Preferences → History Limits**, enable **Keep unlimited history** to retain every captured item until it is deleted or purged. Disk space is the limit; only small thumbnails stay in memory. Enable **Keep history across reboots** as well to restore that history on the next launch.
 
-In **Preferences → Global Shortcut**, the 2.0 working copy defaults to **Control–Option–V** for opening the popover and **Command–Option–Shift–V** for pasting the latest image path. These avoid conflicting with the original app while both are running. It captures a just-taken screenshot if necessary, puts its PNG path on the clipboard, and types that path into the focused terminal or other CLI application. Accessibility permission is required.
+In **Preferences → Global Shortcut**, the 2.0 working copy defaults to **Control–Option–V** for opening the popover and **Command–Option–Shift–V** for the latest image path. These avoid conflicting with the original app while both are running. The shortcut captures a just-taken screenshot if necessary and puts its PNG path on the clipboard. The **Direct** edition then types that path into the focused CLI (Accessibility required). The **Store** edition leaves the path on the clipboard.
 
-Login agent (fallback path):  
+Login item: **Start at login** uses `SMAppService.mainApp`. Direct edition only, if that API fails:  
 `~/Library/LaunchAgents/com.sashornock.ClipMonster2.plist`
 
 ---
 
 ## Preferences (overview)
 
+- Pause capture  
 - History limit or unlimited retention  
-- Auto-paste / Auto-OCR  
-- Global shortcut recorder  
-- Latest-image-path paste shortcut (default Command–Option–Shift–V)
+- Auto-paste (Direct edition) / Auto-OCR  
+- Global shortcut recorder (popover + latest image path; default Command–Option–Shift–V for the path)  
 - Start at login  
 - Keep history across reboots + storage location  
-- Image-row Finder reveal  
-- Accessibility deep-link  
-- Purge all data  
+- Permissions (Accessibility deep-link in the Direct edition; Store copy explains ⌘V)  
+- Privacy policy (in-app) + version string  
+- Purge all data (confirmation alert)  
 
-UI: fixed header (**Done** in prefs) + **scrollable** body + fixed footer (**Quit ClipMonster 2.0**).
+UI: fixed header (pause, purge, **Done** in prefs) + **scrollable** body + fixed footer (**Quit ClipMonster 2.0**).
 
 ---
 
@@ -190,19 +207,23 @@ UI: fixed header (**Done** in prefs) + **scrollable** body + fixed footer (**Qui
 
 ```
 ClipMonster 2.0/
-├── build_app.sh           # swiftc → dist/ClipMonster 2.0.app (+ Vision, ServiceManagement, ImageIO)
+├── ClipMonster.xcodeproj  # Direct + MacAppStore schemes
+├── build_app.sh           # swiftc → dist/ClipMonster 2.0.app (`mas` for Store cut)
+├── Config/                # Info.plist, entitlements, privacy manifest, xcconfig
+├── Resources/             # AppIcon asset catalog + 1024 App Store PNG
 ├── src/
 │   ├── ClipMonster.swift  # App entry point
-│   ├── App/               # Menu-bar lifecycle and shortcut registration
+│   ├── App/               # Menu-bar lifecycle, Carbon hotkeys, welcome, MAS flag
 │   ├── Annotation/        # Markup editor and flattened-PNG renderer
 │   ├── Models/            # Clipboard, persistence, and shortcut data
-│   ├── Services/          # Capture, ImageStore, storage, OCR, exports, login, drag
-│   └── Views/             # Popover, history, preview, preferences, controls
-├── Scripts/                # Deterministic ICNS packager
+│   ├── Services/          # Capture, ImageStore, storage, OCR, bookmarks, login, drag
+│   └── Views/             # Popover, history, preview, preferences, privacy
+├── Scripts/               # Deterministic ICNS packager
 ├── img/                   # Icon source (Clipmonster.jpg)
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── APP_ROADMAP.md
+│   ├── PRIVACY.md
 │   └── WORK_LOG.md
 ├── dist/                  # Build output (gitignored)
 ├── .gitignore
@@ -215,10 +236,21 @@ ClipMonster 2.0/
 
 - [Architecture](docs/ARCHITECTURE.md)  
 - [Roadmap](docs/APP_ROADMAP.md)  
+- [Privacy policy](docs/PRIVACY.md)  
 - [Work log](docs/WORK_LOG.md)  
+- [Annotation module](src/Annotation/README.md)  
 
 ---
 
+## Privacy
+
+Clipboard history stays on this Mac. ClipMonster does not send it anywhere. See [docs/PRIVACY.md](docs/PRIVACY.md) and **Preferences → Privacy**. Host that file at an HTTPS URL before filling in App Store Connect's Privacy Policy field.
+
 ## License / status
 
-Personal / production tooling. Not notarized by default — for local use or ad-hoc sharing via `dist/ClipMonster 2.0.zip`.
+Personal / production tooling. Two editions:
+
+- **Direct** (`./build_app.sh`) — auto-paste and LaunchAgent fallback. Sign with Developer ID and notarize for sharing outside the Store.
+- **Mac App Store** (`./build_app.sh mas` or the **ClipMonster-MAS** scheme) — App Sandbox, Carbon hotkeys, copy-then-⌘V. No synthetic keystrokes and no LaunchAgent writes.
+
+**Status (2026-09-21):** Direct edition is the daily driver on this laptop (`dist/ClipMonster 2.0.app`, history in `~/Documents/clipmonster`). Store-shaped code is ready. **App Store archive, signing, listing, and upload wait for the home Mac** (home Developer Program account). Follow [roadmap Phase 6](docs/APP_ROADMAP.md#phase-6-sell-and-distribute-do-at-home). Direct sharing still needs Developer ID signing and notarization on that same home team.

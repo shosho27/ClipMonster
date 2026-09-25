@@ -10,6 +10,7 @@ struct ContentView: View {
     /// In-popover large image preview (Space / eye button).
     @State private var largePreviewItem: ClipboardItem? = nil
     @State private var markupRequest: MarkupRequest? = nil
+    @State private var confirmPurge = false
     @StateObject private var keyHandler = HistoryKeyHandler()
     
     var body: some View {
@@ -20,8 +21,16 @@ struct ContentView: View {
                     Text(showPreferences ? "Preferences" : "ClipMonster 2.0").font(.headline)
                     Spacer()
                     if !showPreferences {
-                        Button(action: { monitor.purgeAll() }) { Image(systemName: "trash") }
+                        Button(action: { monitor.capturePaused.toggle() }) {
+                            Image(systemName: monitor.capturePaused ? "play.circle.fill" : "pause.circle")
+                        }
+                        .buttonStyle(.plain)
+                        .help(monitor.capturePaused ? "Resume capture" : "Pause capture")
+                        .accessibilityLabel(monitor.capturePaused ? "Resume capture" : "Pause capture")
+                        Spacer().frame(width: 8)
+                        Button(action: { confirmPurge = true }) { Image(systemName: "trash") }
                             .buttonStyle(.plain).help("Purge All")
+                            .accessibilityLabel("Purge all history")
                         Spacer().frame(width: 12)
                     }
                     if showPreferences {
@@ -78,9 +87,7 @@ struct ContentView: View {
                                 Divider()
                                 Button(action: {
                                     monitor.copySelected()
-                                    if monitor.autoPaste {
-                                        appDelegate?.autoPasteIntoPreviousApp()
-                                    }
+                                    finishCopy()
                                 }) {
                                     Text("Apply & Copy \(monitor.selectedItems.count) Items")
                                         .frame(maxWidth: .infinity)
@@ -162,6 +169,12 @@ struct ContentView: View {
             MarkupEditorView(image: request.image, monitor: monitor, onSaved: request.onSaved)
                 .frame(minWidth: 760, minHeight: 620)
         }
+        .alert("Purge all history?", isPresented: $confirmPurge) {
+            Button("Purge", role: .destructive) { monitor.purgeAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes captured text, screenshots, and files from ClipMonster's storage on this Mac.")
+        }
     }
     
     private func bindKeyHandler() {
@@ -193,9 +206,19 @@ struct ContentView: View {
             return
         }
         monitor.copyToClipboard(item: item)
-        if monitor.autoPaste {
+        finishCopy()
+    }
+
+    private func finishCopy() {
+        #if MAS
+        appDelegate?.handFocusBackAfterCopy()
+        #else
+        if Distribution.supportsAutoPaste, monitor.autoPaste {
             appDelegate?.autoPasteIntoPreviousApp()
+        } else {
+            appDelegate?.handFocusBackAfterCopy()
         }
+        #endif
     }
 }
 

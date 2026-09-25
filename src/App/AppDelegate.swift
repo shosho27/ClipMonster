@@ -1,119 +1,42 @@
 import Cocoa
 import SwiftUI
-import Carbon
-
-/// Registers an exclusive system hotkey, which prevents the focused app from
-/// receiving the keystroke before ClipMonster has prepared the image path.
-final class PathPasteHotKey {
-    private var hotKeyRef: EventHotKeyRef?
-    private var handlerRef: EventHandlerRef?
-    var action: () -> Void
-    
-    init(action: @escaping () -> Void) {
-        self.action = action
-    }
-    
-    @discardableResult
-    func register(shortcut: CustomShortcut) -> OSStatus {
-        unregister()
-        
-        if handlerRef == nil {
-            var eventType = EventTypeSpec(
-                eventClass: OSType(kEventClassKeyboard),
-                eventKind: UInt32(kEventHotKeyPressed)
-            )
-            let status = InstallEventHandler(
-                GetApplicationEventTarget(),
-                Self.eventHandler,
-                1,
-                &eventType,
-                Unmanaged.passUnretained(self).toOpaque(),
-                &handlerRef
-            )
-            guard status == noErr else { return status }
-        }
-        
-        let hotKeyID = EventHotKeyID(signature: OSType(0x434D5048), id: 1) // "CMPH"
-        let status = RegisterEventHotKey(
-            UInt32(shortcut.keyCode),
-            Self.carbonModifiers(for: shortcut),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            OptionBits(kEventHotKeyExclusive),
-            &hotKeyRef
-        )
-        if status != noErr { hotKeyRef = nil }
-        return status
-    }
-    
-    func unregister() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
-    }
-    
-    deinit {
-        unregister()
-        if let handlerRef { RemoveEventHandler(handlerRef) }
-    }
-    
-    private static let eventHandler: EventHandlerUPP = { _, _, userData in
-        guard let userData else { return noErr }
-        let manager = Unmanaged<PathPasteHotKey>.fromOpaque(userData).takeUnretainedValue()
-        DispatchQueue.main.async { manager.action() }
-        return noErr
-    }
-    
-    private static func carbonModifiers(for shortcut: CustomShortcut) -> UInt32 {
-        let modifiers = NSEvent.ModifierFlags(rawValue: shortcut.modifiers)
-        var result: UInt32 = 0
-        if modifiers.contains(.command) { result |= UInt32(cmdKey) }
-        if modifiers.contains(.shift) { result |= UInt32(shiftKey) }
-        if modifiers.contains(.option) { result |= UInt32(optionKey) }
-        if modifiers.contains(.control) { result |= UInt32(controlKey) }
-        return result
-    }
-}
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var clipboardMonitor = ClipboardMonitor()
-    var globalMonitor: Any?
-    var localMonitor: Any?
-    private lazy var pathPasteHotKey = PathPasteHotKey { [weak self] in
-        self?.pasteLatestImagePathIntoFrontmostApp()
-    }
-    /// Last non-ClipMonster frontmost app (for auto-paste).
+    /// Last non-ClipMonster frontmost app (for restoring focus after copy).
     var lastFrontmostApp: NSRunningApplication?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        refreshStatusItem()
         if let button = statusItem.button {
-            button.image = Self.menuBarArtwork() ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "ClipMonster 2.0")
-            button.image?.isTemplate = false
-            button.toolTip = "ClipMonster 2.0"
             button.action = #selector(togglePopover(_:))
         }
-        
+
         let contentView = ContentView(monitor: clipboardMonitor, appDelegate: self)
         popover = NSPopover()
         popover.contentSize = NSSize(width: 360, height: 540)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: contentView)
-        
-        setupShortcutMonitors(shortcut: clipboardMonitor.globalShortcut)
-        registerPathPasteHotKey()
+
+        registerHotKeys()
         DragTempCleanup.run()
-        
+
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShortcutChanged"), object: nil, queue: .main) { [weak self] _ in
-            guard let self = self else { return }
-            self.setupShortcutMonitors(shortcut: self.clipboardMonitor.globalShortcut)
-            self.registerPathPasteHotKey()
+            self?.registerHotKeys()
         }
-        
-        // Track previous app for auto-paste
+        NotificationCenter.default.addObserver(forName: .clipMonsterShortcutRecordingBegan, object: nil, queue: .main) { _ in
+            CarbonHotKeyCenter.shared.unregisterAll()
+        }
+        NotificationCenter.default.addObserver(forName: .clipMonsterShortcutRecordingEnded, object: nil, queue: .main) { [weak self] _ in
+            self?.registerHotKeys()
+        }
+        NotificationCenter.default.addObserver(forName: .clipMonsterCapturePauseChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.refreshStatusItem()
+        }
+
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -124,8 +47,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.lastFrontmostApp = app
             }
         }
-        
-        // Keep the transient popover open for the duration of an external drag
+
         NotificationCenter.default.addObserver(forName: DragSession.began, object: nil, queue: .main) { [weak self] _ in
             self?.popover.behavior = .applicationDefined
         }
@@ -136,14 +58,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.popover.performClose(nil)
             }
         }
-        
+
         NotificationCenter.default.addObserver(forName: .clipMonsterClosePopover, object: nil, queue: .main) { [weak self] _ in
             self?.popover.performClose(nil)
         }
+
+        WelcomeWindowController.showIfNeeded { [weak self] in
+            self?.togglePopover(nil)
+        }
     }
-    
+
     func applicationWillTerminate(_ notification: Notification) {
+        CarbonHotKeyCenter.shared.unregisterAll()
         clipboardMonitor.prepareForTermination()
+    }
+
+    private func refreshStatusItem() {
+        guard let button = statusItem?.button else { return }
+        button.image = Self.menuBarArtwork() ?? NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "ClipMonster")
+        button.image?.isTemplate = false
+        button.appearsDisabled = clipboardMonitor.capturePaused
+        if clipboardMonitor.capturePaused {
+            button.toolTip = "ClipMonster 2.0 — capture paused"
+        } else {
+            button.toolTip = "ClipMonster 2.0"
+        }
     }
 
     private static func menuBarArtwork() -> NSImage? {
@@ -152,53 +91,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         image.size = NSSize(width: 18, height: 18)
         return image
     }
-    
-    func setupShortcutMonitors(shortcut: CustomShortcut) {
-        if let currentMonitor = globalMonitor {
-            NSEvent.removeMonitor(currentMonitor)
-            globalMonitor = nil
-        }
-        if let currentMonitor = localMonitor {
-            NSEvent.removeMonitor(currentMonitor)
-            localMonitor = nil
-        }
-        
-        let handler: (NSEvent) -> Void = { [weak self] event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if modifiers.rawValue == shortcut.modifiers && event.keyCode == shortcut.keyCode {
-                DispatchQueue.main.async { self?.togglePopover(nil) }
-            }
-        }
-        
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-            handler(event)
-        }
-        // Local monitor so the shortcut also works when ClipMonster is frontmost
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if modifiers.rawValue == shortcut.modifiers && event.keyCode == shortcut.keyCode {
-                DispatchQueue.main.async { self.togglePopover(nil) }
-                return nil
-            }
-            return event
-        }
-    }
 
-    private func registerPathPasteHotKey() {
-        let status = pathPasteHotKey.register(shortcut: clipboardMonitor.pathPasteShortcut)
-        if status == noErr {
+    func registerHotKeys() {
+        let popoverStatus = CarbonHotKeyCenter.shared.register(
+            id: CarbonHotKeyCenter.popoverID,
+            shortcut: clipboardMonitor.globalShortcut,
+            exclusive: false
+        ) { [weak self] in
+            self?.togglePopover(nil)
+        }
+        if popoverStatus != noErr {
+            clipboardMonitor.globalShortcutError = "Could not reserve \(clipboardMonitor.globalShortcut.displayString). Choose another shortcut."
+        } else {
+            clipboardMonitor.globalShortcutError = nil
+        }
+
+        let pathStatus = CarbonHotKeyCenter.shared.register(
+            id: CarbonHotKeyCenter.pathPasteID,
+            shortcut: clipboardMonitor.pathPasteShortcut,
+            exclusive: true
+        ) { [weak self] in
+            self?.pasteLatestImagePathIntoFrontmostApp()
+        }
+        if pathStatus == noErr {
             clipboardMonitor.pathPasteShortcutError = nil
         } else {
             clipboardMonitor.pathPasteShortcutError = "Could not reserve \(clipboardMonitor.pathPasteShortcut.displayString). Choose another shortcut."
         }
     }
-    
+
     @objc func togglePopover(_ sender: AnyObject?) {
         if let button = statusItem.button {
             if popover.isShown {
                 popover.performClose(sender)
             } else {
-                // Snapshot previous app before we take focus
                 if let front = NSWorkspace.shared.frontmostApplication,
                    front.bundleIdentifier != Bundle.main.bundleIdentifier {
                     lastFrontmostApp = front
@@ -208,29 +134,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-    
-    /// Copy is already done; restore previous app and simulate Cmd+V.
+
+    /// Restore the previous app after a copy. Direct builds can also type ⌘V.
     func autoPasteIntoPreviousApp() {
         popover.performClose(nil)
-        let target = lastFrontmostApp
-        target?.activate()
+        lastFrontmostApp?.activate()
+        #if !MAS
+        guard Distribution.supportsAutoPaste else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             Self.simulateCommandV()
         }
+        #endif
     }
 
-    /// Copy the newest captured image's path, then paste it into whichever app
-    /// is currently focused (such as Terminal) without opening ClipMonster.
+    /// Copy the newest captured image's path. Direct builds paste it into the
+    /// focused app; the Store edition leaves it on the clipboard.
     func pasteLatestImagePathIntoFrontmostApp() {
         guard clipboardMonitor.copyLatestImagePathToClipboard() else { return }
+        #if !MAS
+        guard Distribution.supportsAutoPaste else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
             Self.simulateCommandV()
         }
+        #endif
     }
-    
+
+    /// Close the popover and give focus back so the user can press ⌘V.
+    func handFocusBackAfterCopy() {
+        popover.performClose(nil)
+        lastFrontmostApp?.activate()
+    }
+
+    #if !MAS
     static func simulateCommandV() {
         let source = CGEventSource(stateID: .hidSystemState)
-        let keyV: CGKeyCode = 9 // kVK_ANSI_V
+        let keyV: CGKeyCode = 9
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: false) else { return }
         down.flags = .maskCommand
@@ -238,8 +176,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
     }
+    #endif
 }
 
 extension Notification.Name {
     static let clipMonsterClosePopover = Notification.Name("ClipMonsterClosePopover")
+    static let clipMonsterShortcutRecordingBegan = Notification.Name("ClipMonsterShortcutRecordingBegan")
+    static let clipMonsterShortcutRecordingEnded = Notification.Name("ClipMonsterShortcutRecordingEnded")
+    static let clipMonsterCapturePauseChanged = Notification.Name("ClipMonsterCapturePauseChanged")
 }

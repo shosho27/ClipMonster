@@ -31,9 +31,17 @@ class ClipboardMonitor: ObservableObject {
     @Published var launchAtLogin: Bool = LaunchAtLogin.isEnabled
     @Published var launchAtLoginError: String? = nil
     
-    /// After choosing an item, paste into the previous app (requires Accessibility).
+    /// After choosing an item, paste into the previous app (direct edition only).
     @Published var autoPaste: Bool = UserDefaults.standard.object(forKey: "autoPaste") as? Bool ?? true {
         didSet { UserDefaults.standard.set(autoPaste, forKey: "autoPaste") }
+    }
+
+    /// When true, new copies are ignored until capture is resumed.
+    @Published var capturePaused: Bool = UserDefaults.standard.bool(forKey: "capturePaused") {
+        didSet {
+            UserDefaults.standard.set(capturePaused, forKey: "capturePaused")
+            NotificationCenter.default.post(name: .clipMonsterCapturePauseChanged, object: nil)
+        }
     }
     
     /// Run Vision OCR automatically when a new image is captured.
@@ -65,10 +73,12 @@ class ClipboardMonitor: ObservableObject {
         }
     }
     @Published var pathPasteShortcutError: String? = nil
-    
+    @Published var globalShortcutError: String? = nil
+
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int
     private var timer: Timer?
+    private var storageFolderAccessURL: URL?
     
     init() {
         if let data = UserDefaults.standard.data(forKey: "customGlobalShortcut"),
@@ -93,6 +103,7 @@ class ClipboardMonitor: ObservableObject {
         }
         
         lastChangeCount = pasteboard.changeCount
+        restoreStorageAccess()
         if keepThroughReboot {
             loadFromDisk()
         } else {
@@ -107,6 +118,7 @@ class ClipboardMonitor: ObservableObject {
         } else {
             deleteDiskData()
         }
+        endStorageAccess()
     }
     
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -126,24 +138,12 @@ class ClipboardMonitor: ObservableObject {
         return history.filter { $0.matches(query: q) }
     }
     
-    func isSensitive(_ pasteboard: NSPasteboard) -> Bool {
-        if let types = pasteboard.types, types.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) { return true }
-        if let text = pasteboard.string(forType: .string) {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.count >= 8 && trimmed.count <= 64 && !trimmed.contains(" ") && !trimmed.contains("\n") {
-                let hasLetter = trimmed.rangeOfCharacter(from: .letters) != nil
-                let hasNumber = trimmed.rangeOfCharacter(from: .decimalDigits) != nil
-                let hasSymbol = trimmed.rangeOfCharacter(from: CharacterSet.alphanumerics.inverted) != nil
-                if hasLetter && hasNumber && hasSymbol { return true }
-            }
-        }
-        return false
-    }
-    
     func checkForChanges() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
-        if isSensitive(pasteboard) { return }
+        if capturePaused { return }
+        let frontID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        if SensitiveCapture.shouldSkip(pasteboard, frontmostBundleID: frontID) { return }
         
         var newItem: ClipboardItem? = nil
         let newID = UUID()
@@ -151,7 +151,15 @@ class ClipboardMonitor: ObservableObject {
         if let captured = ImageStore.pngFromPasteboard(pasteboard) {
             newItem = makeImageItem(id: newID, png: captured.data, pixelWidth: captured.pixelWidth, pixelHeight: captured.pixelHeight)
         } else if let urlArray = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL], let firstURL = urlArray.first {
-            newItem = ClipboardItem(id: newID, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: firstURL, timestamp: Date())
+            newItem = ClipboardItem(
+                id: newID,
+                text: nil,
+                thumbnail: nil,
+                imageFileURL: nil,
+                fileURL: firstURL,
+                fileBookmark: ScopedBookmarks.bookmark(for: firstURL),
+                timestamp: Date()
+            )
         } else if let str = pasteboard.string(forType: .string) {
             let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -210,7 +218,7 @@ class ClipboardMonitor: ObservableObject {
             pasteboard.setString(text, forType: .string)
         } else if let url = item.imageFileURL, let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
             pasteboard.setData(data, forType: .png)
-        } else if let url = item.fileURL {
+        } else if let url = item.resolvedFileURL() {
             pasteboard.writeObjects([url as NSURL])
         }
         lastChangeCount = pasteboard.changeCount
@@ -228,7 +236,7 @@ class ClipboardMonitor: ObservableObject {
     /// Write image to a temp (or persisted) PNG and open it in Preview.app.
     @discardableResult
     func openInPreview(_ item: ClipboardItem) -> Bool {
-        if let fileURL = item.fileURL, !item.hasImage {
+        if !item.hasImage, let fileURL = item.resolvedFileURL() {
             return NSWorkspace.shared.open(fileURL)
         }
         guard let url = fileURLForImagePreview(item: item) else { return false }
@@ -246,7 +254,7 @@ class ClipboardMonitor: ObservableObject {
     @discardableResult
     func revealInFinder(_ item: ClipboardItem) -> Bool {
         let url: URL?
-        if let fileURL = item.fileURL, !item.hasImage {
+        if !item.hasImage, let fileURL = item.resolvedFileURL() {
             url = fileURL
         } else {
             url = fileURLForImagePreview(item: item)
@@ -312,7 +320,7 @@ class ClipboardMonitor: ObservableObject {
             if let url = item.imageFileURL, let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) {
                 pasteboard.setData(data, forType: .png)
             }
-            if let url = item.fileURL { objectsToWrite.append(url as NSURL) }
+            if let url = item.resolvedFileURL() { objectsToWrite.append(url as NSURL) }
         }
         if !textComponents.isEmpty { objectsToWrite.append(textComponents.joined(separator: "\n\n") as NSString) }
         if !objectsToWrite.isEmpty { pasteboard.writeObjects(objectsToWrite) }
@@ -361,6 +369,8 @@ class ClipboardMonitor: ObservableObject {
         }
         
         storagePath = destination.path
+        ScopedBookmarks.saveStorageFolder(destination)
+        beginStorageAccess(destination)
         history = history.map { item in
             guard item.hasImage else { return item }
             var copy = item
@@ -407,7 +417,31 @@ class ClipboardMonitor: ObservableObject {
     }
     
     // MARK: - Disk Persistence
+    private func restoreStorageAccess() {
+        guard !storagePath.isEmpty else { return }
+        if let resolved = ScopedBookmarks.resolvedStorageFolder() {
+            beginStorageAccess(resolved)
+            storagePath = resolved.path
+        } else {
+            beginStorageAccess(URL(fileURLWithPath: storagePath))
+        }
+    }
+
+    private func beginStorageAccess(_ url: URL) {
+        endStorageAccess()
+        _ = url.startAccessingSecurityScopedResource()
+        storageFolderAccessURL = url
+    }
+
+    private func endStorageAccess() {
+        storageFolderAccessURL?.stopAccessingSecurityScopedResource()
+        storageFolderAccessURL = nil
+    }
+
     private var dataURL: URL {
+        if let accessed = storageFolderAccessURL {
+            return accessed
+        }
         if storagePath.isEmpty {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             let path = appSupport.appendingPathComponent("ClipMonster 2.0")
@@ -471,7 +505,7 @@ class ClipboardMonitor: ObservableObject {
             if let t = item.text {
                 return PersistedItem(id: item.id, type: "text", content: t, timestamp: item.timestamp, ocrText: nil, imageHash: nil, pixelWidth: nil, pixelHeight: nil)
             } else if let u = item.fileURL {
-                return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp, ocrText: nil, imageHash: nil, pixelWidth: nil, pixelHeight: nil)
+                return PersistedItem(id: item.id, type: "url", content: u.absoluteString, timestamp: item.timestamp, ocrText: nil, imageHash: nil, pixelWidth: nil, pixelHeight: nil, bookmark: item.fileBookmark)
             } else {
                 return PersistedItem(
                     id: item.id,
@@ -496,7 +530,8 @@ class ClipboardMonitor: ObservableObject {
                 if p.type == "text" {
                     loaded.append(ClipboardItem(id: p.id, text: p.content, thumbnail: nil, imageFileURL: nil, fileURL: nil, timestamp: p.timestamp))
                 } else if p.type == "url", let url = URL(string: p.content) {
-                    loaded.append(ClipboardItem(id: p.id, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: url, timestamp: p.timestamp))
+                    let resolved = p.bookmark.flatMap { ScopedBookmarks.resolve($0) } ?? url
+                    loaded.append(ClipboardItem(id: p.id, text: nil, thumbnail: nil, imageFileURL: nil, fileURL: resolved, fileBookmark: p.bookmark, timestamp: p.timestamp))
                 } else if p.type == "image" {
                     let url = dataURL.appendingPathComponent(p.content)
                     guard FileManager.default.fileExists(atPath: url.path) else { continue }

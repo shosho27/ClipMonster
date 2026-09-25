@@ -13,12 +13,29 @@ struct HistoryListView: View {
     
     var body: some View {
         if monitor.history.isEmpty {
-            VStack {
+            VStack(spacing: 8) {
                 Spacer()
-                Image(systemName: "clipboard").font(.largeTitle).foregroundColor(.secondary).padding(.bottom, 4)
-                Text("No history yet.").foregroundColor(.secondary)
+                Image(systemName: monitor.capturePaused ? "pause.circle" : "clipboard")
+                    .font(.largeTitle)
+                    .foregroundColor(.secondary)
+                    .padding(.bottom, 4)
+                if monitor.capturePaused {
+                    Text("Capture is paused.").foregroundColor(.secondary)
+                    Text("Resume from the pause button or Preferences.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text("No history yet.").foregroundColor(.secondary)
+                    Text("Copy text, a screenshot, or a file.\nOpen ClipMonster from the menu bar or press \(monitor.globalShortcut.displayString).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
                 Spacer()
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filtered.isEmpty {
             VStack {
                 Spacer()
@@ -172,6 +189,7 @@ struct HistoryItemRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Large preview (Space)")
+                .accessibilityLabel("Large preview")
                 
                 Button(action: { onOpenInPreview() }) {
                     Image(systemName: "arrow.up.forward.app")
@@ -180,6 +198,7 @@ struct HistoryItemRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open in Preview")
+                .accessibilityLabel("Open in Preview")
 
                 Button(action: { onRevealInFinder() }) {
                     Image(systemName: "folder")
@@ -188,6 +207,7 @@ struct HistoryItemRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Reveal image in Finder")
+                .accessibilityLabel("Reveal in Finder")
 
                 Button(action: { onCopyImagePath() }) {
                     Image(systemName: "doc.on.doc")
@@ -196,6 +216,7 @@ struct HistoryItemRow: View {
                 }
                 .buttonStyle(.plain)
                 .help("Copy image path")
+                .accessibilityLabel("Copy image path")
                 
                 if item.isOCRing {
                     ProgressView().controlSize(.small).frame(width: 20)
@@ -229,6 +250,7 @@ struct HistoryItemRow: View {
                     Image(systemName: "xmark").foregroundColor(.secondary).padding(4)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Delete item")
                 .onHover { hovering in
                     if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                 }

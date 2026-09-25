@@ -1,0 +1,414 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C1A000000200000000000000 /* ClipMonster.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000100000000000000 /* ClipMonster.swift */; };
+		C1A000000201000000000000 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000101000000000000 /* AppDelegate.swift */; };
+		C1A000000202000000000000 /* Distribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000102000000000000 /* Distribution.swift */; };
+		C1A000000203000000000000 /* CarbonHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000103000000000000 /* CarbonHotKey.swift */; };
+		C1A000000204000000000000 /* WelcomeWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000104000000000000 /* WelcomeWindow.swift */; };
+		C1A000000205000000000000 /* ClipboardItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000105000000000000 /* ClipboardItem.swift */; };
+		C1A000000206000000000000 /* CustomShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000106000000000000 /* CustomShortcut.swift */; };
+		C1A000000207000000000000 /* PersistedItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000107000000000000 /* PersistedItem.swift */; };
+		C1A000000208000000000000 /* ClipboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000108000000000000 /* ClipboardMonitor.swift */; };
+		C1A000000209000000000000 /* DragSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000109000000000000 /* DragSupport.swift */; };
+		C1A000000210000000000000 /* ImageOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000110000000000000 /* ImageOCR.swift */; };
+		C1A000000211000000000000 /* ImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000111000000000000 /* ImageStore.swift */; };
+		C1A000000212000000000000 /* LaunchAtLogin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000112000000000000 /* LaunchAtLogin.swift */; };
+		C1A000000213000000000000 /* ScopedBookmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000113000000000000 /* ScopedBookmarks.swift */; };
+		C1A000000214000000000000 /* SensitiveCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000114000000000000 /* SensitiveCapture.swift */; };
+		C1A000000215000000000000 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000115000000000000 /* ContentView.swift */; };
+		C1A000000216000000000000 /* HistoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000116000000000000 /* HistoryViews.swift */; };
+		C1A000000217000000000000 /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000117000000000000 /* PreferencesView.swift */; };
+		C1A000000218000000000000 /* ShortcutControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000118000000000000 /* ShortcutControls.swift */; };
+		C1A000000219000000000000 /* PrivacyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000119000000000000 /* PrivacyView.swift */; };
+		C1A000000220000000000000 /* MarkupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000120000000000000 /* MarkupEditorView.swift */; };
+		C1A000000221000000000000 /* MarkupRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A000000121000000000000 /* MarkupRenderer.swift */; };
+		C1A000000400000000000000 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C1A000000300000000000000 /* Assets.xcassets */; };
+		C1A000000401000000000000 /* Clipmonster.jpg in Resources */ = {isa = PBXBuildFile; fileRef = C1A000000301000000000000 /* Clipmonster.jpg */; };
+		C1A000000402000000000000 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C1A000000302000000000000 /* PrivacyInfo.xcprivacy */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		C1A000000003000000000000 /* ClipMonster 2.0.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ClipMonster 2.0.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C1A000000100000000000000 /* ClipMonster.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipMonster.swift; sourceTree = "<group>"; };
+		C1A000000101000000000000 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C1A000000102000000000000 /* Distribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Distribution.swift; sourceTree = "<group>"; };
+		C1A000000103000000000000 /* CarbonHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarbonHotKey.swift; sourceTree = "<group>"; };
+		C1A000000104000000000000 /* WelcomeWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeWindow.swift; sourceTree = "<group>"; };
+		C1A000000105000000000000 /* ClipboardItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardItem.swift; sourceTree = "<group>"; };
+		C1A000000106000000000000 /* CustomShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomShortcut.swift; sourceTree = "<group>"; };
+		C1A000000107000000000000 /* PersistedItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistedItem.swift; sourceTree = "<group>"; };
+		C1A000000108000000000000 /* ClipboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardMonitor.swift; sourceTree = "<group>"; };
+		C1A000000109000000000000 /* DragSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragSupport.swift; sourceTree = "<group>"; };
+		C1A000000110000000000000 /* ImageOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOCR.swift; sourceTree = "<group>"; };
+		C1A000000111000000000000 /* ImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageStore.swift; sourceTree = "<group>"; };
+		C1A000000112000000000000 /* LaunchAtLogin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAtLogin.swift; sourceTree = "<group>"; };
+		C1A000000113000000000000 /* ScopedBookmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopedBookmarks.swift; sourceTree = "<group>"; };
+		C1A000000114000000000000 /* SensitiveCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensitiveCapture.swift; sourceTree = "<group>"; };
+		C1A000000115000000000000 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		C1A000000116000000000000 /* HistoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryViews.swift; sourceTree = "<group>"; };
+		C1A000000117000000000000 /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
+		C1A000000118000000000000 /* ShortcutControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutControls.swift; sourceTree = "<group>"; };
+		C1A000000119000000000000 /* PrivacyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyView.swift; sourceTree = "<group>"; };
+		C1A000000120000000000000 /* MarkupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkupEditorView.swift; sourceTree = "<group>"; };
+		C1A000000121000000000000 /* MarkupRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkupRenderer.swift; sourceTree = "<group>"; };
+		C1A000000300000000000000 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C1A000000301000000000000 /* Clipmonster.jpg */ = {isa = PBXFileReference; lastKnownFileType = image.jpeg; path = Clipmonster.jpg; sourceTree = "<group>"; };
+		C1A000000302000000000000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C1A000000500000000000000 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		C1A000000501000000000000 /* ClipMonster.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClipMonster.entitlements; sourceTree = "<group>"; };
+		C1A000000502000000000000 /* ClipMonsterMAS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClipMonsterMAS.entitlements; sourceTree = "<group>"; };
+		C1A000000503000000000000 /* Common.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Common.xcconfig; sourceTree = "<group>"; };
+		C1A000000504000000000000 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		C1A000000505000000000000 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		C1A000000506000000000000 /* MacAppStore.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = MacAppStore.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C1A000000005000000000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		C1A000000007000000000000 /*  */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000009000000000000 /* src */,
+				C1A000000015000000000000 /* Config */,
+				C1A000000016000000000000 /* Resources */,
+				C1A000000017000000000000 /* img */,
+				C1A000000008000000000000 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		C1A000000008000000000000 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000003000000000000 /* ClipMonster 2.0.app */,
+			);
+			sourceTree = "<group>";
+		};
+		C1A000000009000000000000 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000100000000000000 /* ClipMonster.swift */,
+				C1A000000010000000000000 /* App */,
+				C1A000000011000000000000 /* Models */,
+				C1A000000012000000000000 /* Services */,
+				C1A000000013000000000000 /* Views */,
+				C1A000000014000000000000 /* Annotation */,
+			);
+			path = src;
+			sourceTree = "<group>";
+		};
+		C1A000000010000000000000 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000101000000000000 /* AppDelegate.swift */,
+				C1A000000102000000000000 /* Distribution.swift */,
+				C1A000000103000000000000 /* CarbonHotKey.swift */,
+				C1A000000104000000000000 /* WelcomeWindow.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C1A000000011000000000000 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000105000000000000 /* ClipboardItem.swift */,
+				C1A000000106000000000000 /* CustomShortcut.swift */,
+				C1A000000107000000000000 /* PersistedItem.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		C1A000000012000000000000 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000108000000000000 /* ClipboardMonitor.swift */,
+				C1A000000109000000000000 /* DragSupport.swift */,
+				C1A000000110000000000000 /* ImageOCR.swift */,
+				C1A000000111000000000000 /* ImageStore.swift */,
+				C1A000000112000000000000 /* LaunchAtLogin.swift */,
+				C1A000000113000000000000 /* ScopedBookmarks.swift */,
+				C1A000000114000000000000 /* SensitiveCapture.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		C1A000000013000000000000 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000115000000000000 /* ContentView.swift */,
+				C1A000000116000000000000 /* HistoryViews.swift */,
+				C1A000000117000000000000 /* PreferencesView.swift */,
+				C1A000000118000000000000 /* ShortcutControls.swift */,
+				C1A000000119000000000000 /* PrivacyView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		C1A000000014000000000000 /* Annotation */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000120000000000000 /* MarkupEditorView.swift */,
+				C1A000000121000000000000 /* MarkupRenderer.swift */,
+			);
+			path = Annotation;
+			sourceTree = "<group>";
+		};
+		C1A000000015000000000000 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000500000000000000 /* Info.plist */,
+				C1A000000501000000000000 /* ClipMonster.entitlements */,
+				C1A000000502000000000000 /* ClipMonsterMAS.entitlements */,
+				C1A000000302000000000000 /* PrivacyInfo.xcprivacy */,
+				C1A000000503000000000000 /* Common.xcconfig */,
+				C1A000000504000000000000 /* Debug.xcconfig */,
+				C1A000000505000000000000 /* Release.xcconfig */,
+				C1A000000506000000000000 /* MacAppStore.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		C1A000000016000000000000 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000300000000000000 /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		C1A000000017000000000000 /* img */ = {
+			isa = PBXGroup;
+			children = (
+				C1A000000301000000000000 /* Clipmonster.jpg */,
+			);
+			path = img;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C1A000000002000000000000 /* ClipMonster2 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C1A000000019000000000000 /* Build configuration list for PBXNativeTarget "ClipMonster2" */;
+			buildPhases = (
+				C1A000000004000000000000 /* Sources */,
+				C1A000000005000000000000 /* Frameworks */,
+				C1A000000006000000000000 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ClipMonster2;
+			productName = ClipMonster2;
+			productReference = C1A000000003000000000000 /* ClipMonster 2.0.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C1A000000001000000000000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					C1A000000002000000000000 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = C1A000000018000000000000 /* Build configuration list for PBXProject "ClipMonster" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = C1A000000007000000000000;
+			productRefGroup = {ID_PRODUCTS} /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C1A000000002000000000000 /* ClipMonster2 */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C1A000000006000000000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1A000000400000000000000 /* Assets.xcassets in Resources */,
+				C1A000000401000000000000 /* Clipmonster.jpg in Resources */,
+				C1A000000402000000000000 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C1A000000004000000000000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1A000000200000000000000 /* ClipMonster.swift in Sources */,
+				C1A000000201000000000000 /* AppDelegate.swift in Sources */,
+				C1A000000202000000000000 /* Distribution.swift in Sources */,
+				C1A000000203000000000000 /* CarbonHotKey.swift in Sources */,
+				C1A000000204000000000000 /* WelcomeWindow.swift in Sources */,
+				C1A000000205000000000000 /* ClipboardItem.swift in Sources */,
+				C1A000000206000000000000 /* CustomShortcut.swift in Sources */,
+				C1A000000207000000000000 /* PersistedItem.swift in Sources */,
+				C1A000000208000000000000 /* ClipboardMonitor.swift in Sources */,
+				C1A000000209000000000000 /* DragSupport.swift in Sources */,
+				C1A000000210000000000000 /* ImageOCR.swift in Sources */,
+				C1A000000211000000000000 /* ImageStore.swift in Sources */,
+				C1A000000212000000000000 /* LaunchAtLogin.swift in Sources */,
+				C1A000000213000000000000 /* ScopedBookmarks.swift in Sources */,
+				C1A000000214000000000000 /* SensitiveCapture.swift in Sources */,
+				C1A000000215000000000000 /* ContentView.swift in Sources */,
+				C1A000000216000000000000 /* HistoryViews.swift in Sources */,
+				C1A000000217000000000000 /* PreferencesView.swift in Sources */,
+				C1A000000218000000000000 /* ShortcutControls.swift in Sources */,
+				C1A000000219000000000000 /* PrivacyView.swift in Sources */,
+				C1A000000220000000000000 /* MarkupEditorView.swift in Sources */,
+				C1A000000221000000000000 /* MarkupRenderer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		C1A000000020000000000000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000504000000000000 /* Debug.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		C1A000000021000000000000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000505000000000000 /* Release.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		C1A000000022000000000000 /* MacAppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000506000000000000 /* MacAppStore.xcconfig */;
+			buildSettings = {
+			};
+			name = MacAppStore;
+		};
+		C1A000000023000000000000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000504000000000000 /* Debug.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5V68L429TM;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sashornock.ClipMonster2;
+				PRODUCT_NAME = ClipMonster2;
+				WRAPPER_NAME = "ClipMonster 2.0.app";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C1A000000024000000000000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000505000000000000 /* Release.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5V68L429TM;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sashornock.ClipMonster2;
+				PRODUCT_NAME = ClipMonster2;
+				WRAPPER_NAME = "ClipMonster 2.0.app";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C1A000000025000000000000 /* MacAppStore */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C1A000000506000000000000 /* MacAppStore.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 5V68L429TM;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sashornock.ClipMonster2;
+				PRODUCT_NAME = ClipMonster2;
+				WRAPPER_NAME = "ClipMonster 2.0.app";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = MacAppStore;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C1A000000018000000000000 /* Build configuration list for PBXProject "ClipMonster" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1A000000020000000000000 /* Debug */,
+				C1A000000021000000000000 /* Release */,
+				C1A000000022000000000000 /* MacAppStore */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C1A000000019000000000000 /* Build configuration list for PBXNativeTarget "ClipMonster2" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C1A000000023000000000000 /* Debug */,
+				C1A000000024000000000000 /* Release */,
+				C1A000000025000000000000 /* MacAppStore */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = C1A000000001000000000000 /* Project object */;
+}

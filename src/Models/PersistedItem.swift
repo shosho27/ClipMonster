@@ -9,5 +9,6 @@ struct PersistedItem: Codable {
     var imageHash: String?
     var pixelWidth: Int?
     var pixelHeight: Int?
+    var bookmark: Data? = nil
 }
 

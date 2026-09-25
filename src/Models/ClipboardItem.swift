@@ -8,6 +8,8 @@ struct ClipboardItem: Identifiable {
     /// PNG on disk. Full pixels are loaded only for markup, copy, or Preview.
     var imageFileURL: URL?
     let fileURL: URL?
+    /// Security-scoped bookmark for a file clip, so sandbox access survives relaunch.
+    var fileBookmark: Data? = nil
     let timestamp: Date
     /// OCR text extracted from image (Vision).
     var ocrText: String? = nil
@@ -38,6 +40,14 @@ struct ClipboardItem: Identifiable {
         return searchableText.localizedCaseInsensitiveContains(q)
     }
     
+    func resolvedFileURL() -> URL? {
+        if let data = fileBookmark, let url = ScopedBookmarks.resolve(data) {
+            _ = url.startAccessingSecurityScopedResource()
+            return url
+        }
+        return fileURL
+    }
+
     func loadFullImage() -> NSImage? {
         guard let url = imageFileURL else { return nil }
         return NSImage(contentsOf: url)
@@ -58,7 +68,7 @@ struct ClipboardItem: Identifiable {
         if let imageURL = imageFileURL {
             return Self.imageFileProvider(imageURL)
         }
-        if let fileURL = fileURL {
+        if let fileURL = resolvedFileURL() {
             return NSItemProvider(contentsOf: fileURL) ?? NSItemProvider()
         }
         if let text = text {

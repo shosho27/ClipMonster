@@ -5,3 +5,8 @@ dist/
 .DS_Store
 *.swp
 *~.nib
+
+# Xcode user state
+ClipMonster.xcodeproj/xcuserdata/
+*.xcuserstate
+DerivedData/

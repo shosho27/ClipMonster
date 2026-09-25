@@ -3,9 +3,19 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var monitor: ClipboardMonitor
+    @State private var showPrivacy = false
+    @State private var confirmPurge = false
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 14) {
+                prefSection("Capture") {
+                    Toggle(monitor.capturePaused ? "Capture paused" : "Pause capture", isOn: $monitor.capturePaused)
+                    Text("While paused, new copies are not added to history.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 prefSection("History Limits") {
                     Toggle("Keep unlimited history", isOn: $monitor.unlimitedHistory)
                     Text("Stores every captured item until you delete or purge it. Disk space is the limit; only small thumbnails stay in memory.")
@@ -19,13 +29,17 @@ struct PreferencesView: View {
                     }
                 }
                 
-                prefSection("Paste") {
-                    Toggle("Auto-paste into previous app", isOn: $monitor.autoPaste)
-                    Text("After you pick an item, simulates ⌘V. Needs Accessibility.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                #if !MAS
+                if Distribution.supportsAutoPaste {
+                    prefSection("Paste") {
+                        Toggle("Auto-paste into previous app", isOn: $monitor.autoPaste)
+                        Text("After you pick an item, simulates ⌘V. Needs Accessibility.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                #endif
                 
                 prefSection("OCR") {
                     Toggle("Auto-OCR new images", isOn: $monitor.autoOCR)
@@ -46,10 +60,25 @@ struct PreferencesView: View {
                         Spacer()
                         ShortcutRecorder(shortcut: $monitor.pathPasteShortcut)
                     }
-                    Text("Copies the newest screenshot's PNG path and pastes it into the focused app. Requires Accessibility; default: ⌘⇧V.")
+                    #if MAS
+                    Text("Copies the newest screenshot's PNG path to the clipboard. Press ⌘V in the focused app to insert it.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    #else
+                    Text(Distribution.supportsAutoPaste
+                         ? "Copies the newest screenshot's PNG path and pastes it into the focused app. Requires Accessibility."
+                         : "Copies the newest screenshot's PNG path to the clipboard. Press ⌘V in the focused app to insert it.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    #endif
+                    if let error = monitor.globalShortcutError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let error = monitor.pathPasteShortcutError {
                         Text(error)
                             .font(.caption)
@@ -106,7 +135,13 @@ struct PreferencesView: View {
                 }
                 
                 prefSection("Permissions") {
-                    Text("Accessibility is required for the global shortcut and auto-paste.")
+                    #if MAS
+                    Text("This Mac App Store edition uses system hotkeys. Copy an item, then press ⌘V to paste. Accessibility is not required.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    #else
+                    Text("Accessibility is required for auto-paste. Global shortcuts use system hotkeys.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -115,10 +150,23 @@ struct PreferencesView: View {
                             NSWorkspace.shared.open(url)
                         }
                     }
+                    #endif
+                }
+
+                prefSection("Privacy") {
+                    Text("Clipboard history stays on this Mac. ClipMonster does not send it anywhere.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Privacy Policy") { showPrivacy = true }
+                        .controlSize(.mini)
+                    Text("ClipMonster \(Distribution.versionString)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
                 
                 prefSection("Data Management") {
-                    Button("Purge All Data") { monitor.purgeAll() }
+                    Button("Purge All Data") { confirmPurge = true }
                         .foregroundColor(.red)
                 }
                 
@@ -127,6 +175,15 @@ struct PreferencesView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .alert("Purge all history?", isPresented: $confirmPurge) {
+            Button("Purge", role: .destructive) { monitor.purgeAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes captured text, screenshots, and files from ClipMonster's storage on this Mac.")
+        }
+        .sheet(isPresented: $showPrivacy) {
+            PrivacyPolicyView { showPrivacy = false }
         }
     }
     

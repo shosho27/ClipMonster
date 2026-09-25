@@ -24,6 +24,7 @@ struct ShortcutRecorder: View {
     }
     
     func startRecording() {
+        NotificationCenter.default.post(name: .clipMonsterShortcutRecordingBegan, object: nil)
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
@@ -43,10 +44,14 @@ struct ShortcutRecorder: View {
     }
     
     func stopRecording() {
+        let wasRecording = isRecording
         isRecording = false
         if let monitor = localMonitor {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
+        }
+        if wasRecording {
+            NotificationCenter.default.post(name: .clipMonsterShortcutRecordingEnded, object: nil)
         }
     }
 }

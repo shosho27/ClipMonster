@@ -1,5 +1,25 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-09-21 — App Store upload deferred to home account
+
+- Direct edition reinstall on this laptop verified: process from `dist/ClipMonster 2.0.app`, version 2.0.0 (200), history restored from `~/Documents/clipmonster` (50-item cap), live capture works, Accessibility allowed for `com.sashornock.ClipMonster2`, welcome already dismissed. Duplicate Background Items rows (`ClipMonster 2.0` and `ClipMonster 2.0 2`) remain for the same `dist` URL.
+- User confirmed the **paid Developer Program is on the home Apple account**. Do not archive or upload from this laptop (free Personal Team `5V68L429TM`). Next session: home Mac, Phase 6 in `APP_ROADMAP.md` — ClipMonster-MAS archive, App Store Connect listing, hosted privacy URL, TestFlight.
+
+## 2026-09-21 — documentation sync
+
+- Brought README, ARCHITECTURE, ROADMAP, PRIVACY, and the in-app privacy sheet in line with the shipping code: two editions (Direct vs `-D MAS`), Carbon hotkeys, pause capture, purge confirmation, welcome window, security-scoped bookmarks, and the expanded secret-skip list.
+- Roadmap Phase 4 item 7 now records that NSEvent monitors were replaced by Carbon. Remaining Store listing work (paid program, hosted policy URL, screenshots, TestFlight, Developer ID notarization) is Phase 6.
+- Docs index in README now includes `docs/PRIVACY.md` and `src/Annotation/README.md`.
+
+## 2026-09-21 — Mac App Store cut
+
+- Added `ClipMonster.xcodeproj` with Debug/Release (direct) and MacAppStore configurations, plus shared schemes **ClipMonster** and **ClipMonster-MAS**.
+- Store binaries compile with `-D MAS`, use `Config/ClipMonsterMAS.entitlements` (App Sandbox + user-selected files), and omit `CGEvent` paste and LaunchAgent writes.
+- Both global shortcuts now use Carbon `RegisterEventHotKey`. Accessibility is only needed for auto-paste in the direct edition.
+- Security-scoped bookmarks cover a custom storage folder and file clips. First launch shows a welcome window so the `LSUIElement` menu-bar app is findable.
+- Pause capture, purge confirmation, password-manager / concealed-pasteboard skipping, in-app privacy policy, `Config/PrivacyInfo.xcprivacy`, macOS 14 deployment target, and a 1024 App Store icon PNG (`Resources/AppStoreIcon.png`).
+- `./build_app.sh` remains the direct local path; `./build_app.sh mas` ad-hoc signs the sandboxed edition. App Store Connect upload still needs a paid Developer Program membership (current signing identity is a free Personal Team).
+
 ## 2026-09-18 — disk-backed captures (RAM)
 
 - History no longer retains a decoded `NSImage` per screenshot. Each capture is written as `<UUID>.png`; RAM keeps a 128px ImageIO thumbnail plus path/hash/pixel size.

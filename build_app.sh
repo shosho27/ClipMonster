@@ -1,6 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-# build_app.sh
+# Direct edition: ./build_app.sh
+# Mac App Store (sandboxed, -D MAS): ./build_app.sh mas
+
 APP_NAME="ClipMonster 2.0"
 EXECUTABLE_NAME="ClipMonster2"
 BUNDLE_ID="com.sashornock.ClipMonster2"
@@ -10,6 +13,10 @@ APP_BUNDLE="${DIST_DIR}/${APP_NAME}.app"
 CONTENTS_DIR="${APP_BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+MAS_BUILD=0
+if [ "${1:-}" = "mas" ]; then
+    MAS_BUILD=1
+fi
 
 echo "Cleaning dist directory..."
 rm -rf "${DIST_DIR}"
@@ -17,13 +24,11 @@ mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
 echo "Compiling Swift source..."
-# Compile every Swift file below src so feature areas can use their own folders.
 SWIFT_SOURCES=()
 while IFS= read -r source_file; do
     SWIFT_SOURCES+=("$source_file")
 done < <(find "$SRC_DIR" -type f -name '*.swift' -print | sort)
 
-# Command Line Tools swiftc does not search Xcode's SwiftUI macro plugin path.
 SWIFT_FLAGS=()
 XCODE_MACOS_PLUGINS="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins"
 XCODE_MACOS_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
@@ -33,45 +38,24 @@ fi
 if [ -d "$XCODE_MACOS_SDK" ]; then
     SWIFT_FLAGS+=(-sdk "$XCODE_MACOS_SDK")
 fi
+export MACOSX_DEPLOYMENT_TARGET=14.0
+SWIFT_FLAGS+=(-target arm64-apple-macos14)
+if [ "$MAS_BUILD" -eq 1 ]; then
+    SWIFT_FLAGS+=(-D MAS)
+    echo "Building Mac App Store edition (sandboxed, no synthetic paste)."
+fi
 
 swiftc -parse-as-library "${SWIFT_SOURCES[@]}" \
     "${SWIFT_FLAGS[@]}" \
     -framework ServiceManagement \
     -framework Vision \
     -framework ImageIO \
+    -framework Carbon \
     -o "${MACOS_DIR}/${EXECUTABLE_NAME}"
-if [ $? -ne 0 ]; then
-    echo "Swift compile failed."
-    exit 1
-fi
 
-echo "Creating Info.plist..."
-cat <<EOF > "${CONTENTS_DIR}/Info.plist"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key>
-    <string>${APP_NAME}</string>
-    <key>CFBundleExecutable</key>
-    <string>${EXECUTABLE_NAME}</string>
-    <key>CFBundleIdentifier</key>
-    <string>${BUNDLE_ID}</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>2.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>2.0</string>
-    <key>LSUIElement</key>
-    <true/>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-</dict>
-</plist>
-EOF
+echo "Installing Info.plist and privacy manifest..."
+cp "Config/Info.plist" "${CONTENTS_DIR}/Info.plist"
+cp "Config/PrivacyInfo.xcprivacy" "${RESOURCES_DIR}/PrivacyInfo.xcprivacy"
 
 echo "Bundling ClipMonster artwork and application icon..."
 ICON_SRC="img/Clipmonster.jpg"
@@ -93,8 +77,26 @@ else
     echo "Warning: Icon source not found at $ICON_SRC"
 fi
 
+if [ "$MAS_BUILD" -eq 1 ]; then
+    echo "Ad-hoc signing with App Sandbox entitlements..."
+    codesign --force --deep --sign - \
+        --identifier "${BUNDLE_ID}" \
+        --entitlements "Config/ClipMonsterMAS.entitlements" \
+        "${APP_BUNDLE}"
+    echo "Sandboxed signature:"
+    codesign -d --entitlements - "${APP_BUNDLE}" 2>&1 | head -20
+else
+    echo "Ad-hoc signing (direct edition)..."
+    codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_BUNDLE}" || true
+fi
+
 echo "Packaging App for Team Sharing..."
 cd "${DIST_DIR}"
 zip -qr "${APP_NAME}.zip" "${APP_NAME}.app"
 cd ..
-echo "Build complete! App is at ${APP_BUNDLE} and zipped at ${DIST_DIR}/${APP_NAME}.zip"
+if [ "$MAS_BUILD" -eq 1 ]; then
+    echo "MAS build complete: ${APP_BUNDLE}"
+else
+    echo "Direct build complete: ${APP_BUNDLE}"
+fi
+echo "Zipped at ${DIST_DIR}/${APP_NAME}.zip"
