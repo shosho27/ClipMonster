@@ -1,5 +1,11 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-06 — blank capture fix
+
+- The reported saved image contained only fully transparent pixels. Reproduced the exact issue with a real screen capture: ImageIO lazy decoding after temporary-file deletion yielded all-zero pixels; immediate decoding retained content.
+- Force immediate PNG decoding before removing the temporary file. Keep temporary cleanup in place.
+- The regression test covers PNG creation, decoding, temporary-file removal, stitching, NSImage conversion, and saved-PNG export, verifying exact pixels and opaque alpha.
+
 ## 2026-10-06 — Chrome blank-page click detection
 
 - Actual Chrome hit testing returned `AXScrollArea` for blank webpage space, with the `AXWebArea` underneath it as a child. The ancestor-only page check rejected that valid click.

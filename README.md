@@ -138,8 +138,10 @@ Run the deterministic alignment/composition checks with:
 ```bash
 swiftc src/Services/ScrollCaptureStitcher.swift Tests/ScrollCaptureStitcherTests.swift -o /tmp/clipmonster-scroll-tests
 /tmp/clipmonster-scroll-tests
-swiftc src/Services/CapturePageTarget.swift src/Services/CaptureEscapeHotKey.swift src/Services/ScrollCaptureStitcher.swift src/Services/ScrollingCapture.swift Tests/CapturePageTargetTests.swift -o /tmp/clipmonster-page-tests
+swiftc src/Services/CapturePageTarget.swift src/Services/CaptureEscapeHotKey.swift src/Services/ScrollCaptureImageDecoder.swift src/Services/ScrollCaptureStitcher.swift src/Services/ScrollingCapture.swift Tests/CapturePageTargetTests.swift -o /tmp/clipmonster-page-tests
 /tmp/clipmonster-page-tests
+swiftc src/Services/ScrollCaptureImageDecoder.swift src/Services/ScrollCaptureStitcher.swift src/Services/ImageStore.swift Tests/ScrollCaptureImageTests.swift -o /tmp/clipmonster-image-tests
+/tmp/clipmonster-image-tests
 ```
 
 ---

@@ -259,8 +259,7 @@ final class ScrollingCapture: ObservableObject {
         try Task.checkCancellation()
         try requireTargetFocus()
         guard exitStatus == 0,
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = ScrollCaptureImageDecoder.load(url) else {
             throw CaptureError("Screen capture failed. Check Screen Recording permission and keep the selected screen connected.")
         }
         guard image.width * image.height <= 60_000_000 else { throw CaptureError("The selected area is too large.") }
