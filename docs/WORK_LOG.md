@@ -1,5 +1,30 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-06 — blank capture fix
+
+- The reported saved image contained only fully transparent pixels. Reproduced the exact issue with a real screen capture: ImageIO lazy decoding after temporary-file deletion yielded all-zero pixels; immediate decoding retained content.
+- Force immediate PNG decoding before removing the temporary file. Keep temporary cleanup in place.
+- The regression test covers PNG creation, decoding, temporary-file removal, stitching, NSImage conversion, and saved-PNG export, verifying exact pixels and opaque alpha.
+
+## 2026-10-06 — Chrome blank-page click detection
+
+- Actual Chrome hit testing returned `AXScrollArea` for blank webpage space, with the `AXWebArea` underneath it as a child. The ancestor-only page check rejected that valid click.
+- Resolve webpage identity through a bounded descendant search on scrolling containers as well as the parent chain. Browser toolbar/tab-strip containers still need a WebArea to qualify. Keep lookups off the UI thread with per-element messaging timeouts.
+- Verified the real Chrome blank-page hit resolves the visible viewport. Added an opt-in `--chrome-at-pointer` integration check to the page-target test executable.
+
+## 2026-10-06 — click-to-select capture and cancellation fix
+
+- Removed the screen-covering rectangle selector, which could trap input without a key window. Scrolling Capture now arms a global mouse-up observer; the next ordinary click inside a webpage identifies the browser and its nearest visible scroll area through Accessibility. Toolbars are rejected, document dimensions are clipped to window/screen bounds, and nested scroll areas are preferred.
+- Added a small Cancel control while choosing a page, a 60-second idle timeout, and a session-only exclusive Escape hotkey. Cancellation releases controls/event hooks immediately and terminates any running screenshot subprocess. Accessibility lookups run off the main actor with a bounded messaging timeout.
+- Validation: build passes; stitching tests pass; viewport/window/display clipping and nested-scroller tests pass; native Escape registration and repeated arm/cancel lifecycle checks pass without changing the clipboard. Full live browser auto-capture still needs user verification.
+
+## 2026-10-06 — scrolling webpage capture
+
+- Added a **Scrolling Capture** button above history search. Select content on one display; scroll the existing browser page with Quartz events and capture overlapping viewports with the macOS screenshot tool.
+- Align in pixel coordinates rather than assuming wheel distance or Retina scale. Copy only new bottom strips, compose once, then save through existing disk-backed image history and clipboard handling. Alignment/composition run off the main actor.
+- Added Accessibility / Screen Recording checks, a progress panel with Stop & Save / Cancel, global/local Escape handling, focus checks, temporary-file cleanup, pointer restoration, and bounded partial capture messages.
+- Validation: `build_app.sh` passes without compiler warnings. Deterministic Swift checks pass at 1× and 2×, including exact full-image pixel equality, the smaller final scroll, unchanged viewports, unrelated images, and invalid dimensions/crops. The isolated native test app showed the expected Accessibility permission notice; full live browser capture remains unverified because that test bundle was not granted permission.
+
 ## 2026-09-18 — disk-backed captures (RAM)
 
 - History no longer retains a decoded `NSImage` per screenshot. Each capture is written as `<UUID>.png`; RAM keeps a 128px ImageIO thumbnail plus path/hash/pixel size.

@@ -203,6 +203,17 @@ class ClipboardMonitor: ObservableObject {
         copyToClipboard(item: item)
         return item
     }
+
+    /// Capture fails atomically: never add an empty row or clear the clipboard
+    /// when PNG encoding or storage fails.
+    @discardableResult
+    func addCapturedImage(_ image: NSImage) -> ClipboardItem? {
+        guard let png = ImageStore.pngData(from: image),
+              let item = makeImageItem(id: UUID(), png: png) else { return nil }
+        insertItem(item)
+        copyToClipboard(item: item)
+        return item
+    }
     
     func copyToClipboard(item: ClipboardItem) {
         pasteboard.clearContents()

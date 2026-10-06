@@ -58,8 +58,12 @@ final class PathPasteHotKey {
         if let handlerRef { RemoveEventHandler(handlerRef) }
     }
     
-    private static let eventHandler: EventHandlerUPP = { _, _, userData in
-        guard let userData else { return noErr }
+    private static let eventHandler: EventHandlerUPP = { _, event, userData in
+        guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+        var id = EventHotKeyID()
+        guard GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                nil, MemoryLayout<EventHotKeyID>.size, nil, &id) == noErr,
+              id.signature == OSType(0x434D5048), id.id == 1 else { return OSStatus(eventNotHandledErr) }
         let manager = Unmanaged<PathPasteHotKey>.fromOpaque(userData).takeUnretainedValue()
         DispatchQueue.main.async { manager.action() }
         return noErr
@@ -80,6 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var clipboardMonitor = ClipboardMonitor()
+    @MainActor private lazy var scrollingCapture = ScrollingCapture()
     var globalMonitor: Any?
     var localMonitor: Any?
     private lazy var pathPasteHotKey = PathPasteHotKey { [weak self] in
@@ -143,7 +148,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        scrollingCapture.cancel()
         clipboardMonitor.prepareForTermination()
+    }
+
+    @MainActor func startScrollingCapture() {
+        let target = lastFrontmostApp
+        popover.performClose(nil)
+        scrollingCapture.start(target: target) { [weak self] image in
+            self?.clipboardMonitor.addCapturedImage(image) != nil
+        }
     }
 
     private static func menuBarArtwork() -> NSImage? {

@@ -51,6 +51,7 @@ This is the independent 2.0 working copy. The original ClipMonster remains uncha
 
 ## Phase 5: Next ideas
 
+- [x] Scrolling Capture button: click-to-select browser content, automatic area detection/scrolling, overlap stitching, Stop & Save / Escape, bounded partial captures
 - [x] Screen-capture markup editor: Select, pen, arrow, box, text, color, width, undo/clear, and annotated-copy save
 - [x] Annotation selection: move, corner resize, rotation handle, arrow endpoints, inspector color/scale/rotation/delete, editable text
 - [x] Disk-backed captures: thumbnails in RAM, full PNG loaded only for preview/markup/OCR/copy/drag
