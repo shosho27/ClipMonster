@@ -1,5 +1,12 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-06 — scrolling webpage capture
+
+- Added a **Scrolling Capture** button above history search. Select content on one display; scroll the existing browser page with Quartz events and capture overlapping viewports with the macOS screenshot tool.
+- Align in pixel coordinates rather than assuming wheel distance or Retina scale. Copy only new bottom strips, compose once, then save through existing disk-backed image history and clipboard handling. Alignment/composition run off the main actor.
+- Added Accessibility / Screen Recording checks, a progress panel with Stop & Save / Cancel, global/local Escape handling, focus checks, temporary-file cleanup, pointer restoration, and bounded partial capture messages.
+- Validation: `build_app.sh` passes without compiler warnings. Deterministic Swift checks pass at 1× and 2×, including exact full-image pixel equality, the smaller final scroll, unchanged viewports, unrelated images, and invalid dimensions/crops. The isolated native test app showed the expected Accessibility permission notice; full live browser capture remains unverified because that test bundle was not granted permission.
+
 ## 2026-09-18 — disk-backed captures (RAM)
 
 - History no longer retains a decoded `NSImage` per screenshot. Each capture is written as `<UUID>.png`; RAM keeps a 128px ImageIO thumbnail plus path/hash/pixel size.

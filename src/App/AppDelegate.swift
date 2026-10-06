@@ -80,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var popover: NSPopover!
     var clipboardMonitor = ClipboardMonitor()
+    @MainActor private lazy var scrollingCapture = ScrollingCapture()
     var globalMonitor: Any?
     var localMonitor: Any?
     private lazy var pathPasteHotKey = PathPasteHotKey { [weak self] in
@@ -143,7 +144,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        scrollingCapture.cancel()
         clipboardMonitor.prepareForTermination()
+    }
+
+    @MainActor func startScrollingCapture() {
+        let target = lastFrontmostApp
+        popover.performClose(nil)
+        scrollingCapture.start(target: target) { [weak self] image in
+            self?.clipboardMonitor.addCapturedImage(image) != nil
+        }
     }
 
     private static func menuBarArtwork() -> NSImage? {

@@ -38,6 +38,14 @@ struct ContentView: View {
                 }.padding(.horizontal).padding(.top, 12).padding(.bottom, 8)
                 
                 if !showPreferences {
+                    Button(action: { appDelegate?.startScrollingCapture() }) {
+                        Label("Scrolling Capture", systemImage: "rectangle.expand.vertical")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                    .help("Select a webpage area and capture as it scrolls to the bottom")
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundColor(.secondary)
                         TextField("Search history…", text: $searchText)
