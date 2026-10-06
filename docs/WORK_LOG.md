@@ -1,5 +1,11 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-06 — click-to-select capture and cancellation fix
+
+- Removed the screen-covering rectangle selector, which could trap input without a key window. Scrolling Capture now arms a global mouse-up observer; the next ordinary click inside a webpage identifies the browser and its nearest visible scroll area through Accessibility. Toolbars are rejected, document dimensions are clipped to window/screen bounds, and nested scroll areas are preferred.
+- Added a small Cancel control while choosing a page, a 60-second idle timeout, and a session-only exclusive Escape hotkey. Cancellation releases controls/event hooks immediately and terminates any running screenshot subprocess. Accessibility lookups run off the main actor with a bounded messaging timeout.
+- Validation: build passes; stitching tests pass; viewport/window/display clipping and nested-scroller tests pass; native Escape registration and repeated arm/cancel lifecycle checks pass without changing the clipboard. Full live browser auto-capture still needs user verification.
+
 ## 2026-10-06 — scrolling webpage capture
 
 - Added a **Scrolling Capture** button above history search. Select content on one display; scroll the existing browser page with Quartz events and capture overlapping viewports with the macOS screenshot tool.

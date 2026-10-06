@@ -45,7 +45,7 @@ struct ContentView: View {
                     .buttonStyle(.bordered)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
-                    .help("Select a webpage area and capture as it scrolls to the bottom")
+                    .help("Click Scrolling Capture, then click inside your webpage to automatically capture its scrolling content")
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundColor(.secondary)
                         TextField("Search history…", text: $searchText)

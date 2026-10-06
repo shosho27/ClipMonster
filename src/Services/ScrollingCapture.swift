@@ -7,7 +7,13 @@ final class ScrollingCapture: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var status = ""
     private var task: Task<Void, Never>?
-    private var selectionWindows: [NSWindow] = []
+    @Published private(set) var isChoosingPage = false
+    private var clickMonitor: Any?
+    private var selectionTask: Task<Void, Never>?
+    private var armingTimeout: Task<Void, Never>?
+    private var cancelHotKey: CaptureEscapeHotKey?
+    private var screenshotProcess: Process?
+    private var scrollPoint: CGPoint?
     private var panel: NSPanel?
     private var escapeMonitor: Any?
     private var localEscapeMonitor: Any?
@@ -18,11 +24,6 @@ final class ScrollingCapture: ObservableObject {
 
     func start(target: NSRunningApplication?, onSaved: @escaping (NSImage) -> Bool) {
         guard !isRunning else { return }
-        guard let target, !target.isTerminated,
-              target.bundleIdentifier != Bundle.main.bundleIdentifier else {
-            alert("Open your webpage first", "Bring your browser to the front, then open ClipMonster and click Scrolling Capture.")
-            return
-        }
         guard AXIsProcessTrusted() else {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
@@ -33,18 +34,16 @@ final class ScrollingCapture: ObservableObject {
             alert("Screen Recording permission needed", "Enable ClipMonster 2.0 in System Settings → Privacy & Security → Screen & System Audio Recording. You may need to quit and reopen the app.")
             return
         }
-        let instructions = NSAlert()
-        instructions.messageText = "Capture a scrolling webpage"
-        instructions.informativeText = "Start at the top of your webpage. Drag a rectangle around the scrolling content, excluding browser toolbars, fixed headers, and scrollbars. Keep the browser visible and leave the mouse alone during capture.\n\nClipMonster captures from the current position to where scrolling stops. Stop & Save keeps what was captured; Escape cancels."
-        instructions.addButton(withTitle: "Select Webpage Area")
-        instructions.addButton(withTitle: "Cancel")
-        guard instructions.runModal() == .alertFirstButtonReturn else { return }
-        targetApp = target
         self.onSaved = onSaved
         originalPointer = CGEvent(source: nil)?.location
         stopRequested = false
         isRunning = true
-        status = "Select the scrolling content · Escape cancels"
+        isChoosingPage = true
+        status = "Click inside the webpage to capture · Esc cancels"
+        cancelHotKey = CaptureEscapeHotKey { [weak self] in
+            Task { @MainActor in self?.cancel() }
+        }
+        cancelHotKey?.register()
         localEscapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
                 Task { @MainActor in self?.cancel() }
@@ -55,49 +54,88 @@ final class ScrollingCapture: ObservableObject {
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { Task { @MainActor in self?.cancel() } }
         }
-        for screen in NSScreen.screens {
-            let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            window.level = .screenSaver
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            let view = CaptureSelectionView(frame: CGRect(origin: .zero, size: screen.frame.size))
-            view.selected = { [weak self] localRect in
-                let globalRect = localRect.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY)
-                DispatchQueue.main.async { self?.beginCapture(rect: globalRect) }
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        if let screen {
+            showControls(at: CGRect(x: screen.visibleFrame.maxX - 350, y: screen.visibleFrame.maxY - 130, width: 340, height: 110))
+        }
+        // Observe the ordinary click; no screen-covering window intercepts it.
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            let point = CGEvent(source: nil)?.location ?? .zero
+            Task { @MainActor in self?.choosePage(at: point) }
+        }
+        target?.activate(options: [])
+        armingTimeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            guard !Task.isCancelled, let self, isChoosingPage else { return }
+            cancel()
+        }
+    }
+
+    private func showControls(at rect: CGRect) {
+        let control = NSPanel(contentRect: rect,
+                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        control.level = .floating
+        control.isFloatingPanel = true
+        control.hidesOnDeactivate = false
+        control.isMovableByWindowBackground = true
+        control.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        control.contentView = NSHostingView(rootView: ScrollCaptureControls(capture: self))
+        panel = control
+        control.orderFrontRegardless()
+    }
+
+    private func choosePage(at point: CGPoint) {
+        guard isChoosingPage, selectionTask == nil,
+              let app = NSWorkspace.shared.frontmostApplication,
+              app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let screens = NSScreen.screens.map {
+            CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height)
+        }
+        let pid = app.processIdentifier
+        status = "Finding webpage content… · Esc cancels"
+        selectionTask = Task { [weak self] in
+            let frame = await Task.detached(priority: .userInitiated) {
+                CapturePageTarget.resolve(point: point, pid: pid, screens: screens)
+            }.value
+            guard let self, !Task.isCancelled, isChoosingPage else { return }
+            selectionTask = nil
+            guard let frame else {
+                status = "Click inside page content, away from the toolbar"
+                return
             }
-            window.contentView = view
-            window.orderFrontRegardless()
-            selectionWindows.append(window)
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else {
+                status = "Click the webpage again to choose it"
+                return
+            }
+            targetApp = app
+            scrollPoint = point
+            isChoosingPage = false
+            if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+            clickMonitor = nil
+            armingTimeout?.cancel()
+            armingTimeout = nil
+            beginCapture(rect: frame)
         }
     }
 
     func stopAndSave() { stopRequested = true; status = "Saving capture…" }
 
     func cancel() {
+        // Release all UI and event hooks immediately, even if a screenshot or
+        // background alignment is still finishing.
         task?.cancel()
+        selectionTask?.cancel()
+        selectionTask = nil
+        if let screenshotProcess, screenshotProcess.isRunning { screenshotProcess.terminate() }
+        releaseControls()
         if task == nil { finish() }
     }
 
     private func beginCapture(rect: CGRect) {
         guard isRunning, task == nil else { return }
-        guard rect.width >= 200, rect.height >= 150 else {
-            status = "Select an area at least 200 × 150 points"
-            return
-        }
-        for window in selectionWindows { window.orderOut(nil) }
-        selectionWindows.removeAll()
-        // AppKit uses bottom-left coordinates; Quartz capture and events use top-left.
-        let primaryTop = NSScreen.screens.first?.frame.maxY ?? 0
-        let captureRect = CGRect(x: rect.minX, y: primaryTop - rect.maxY, width: rect.width, height: rect.height).integral
-        targetApp?.activate(options: [])
-        let control = NSPanel(contentRect: CGRect(x: rect.minX, y: rect.maxY - 90, width: 310, height: 85),
-                              styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        control.level = .floating
-        control.isFloatingPanel = true
-        control.hidesOnDeactivate = false
-        control.contentView = NSHostingView(rootView: ScrollCaptureControls(capture: self))
-        panel = control
+        let captureRect = rect.integral
+        panel?.orderOut(nil)
         task = Task { [weak self] in
             guard let self else { return }
             defer { finish() }
@@ -126,7 +164,7 @@ final class ScrollingCapture: ObservableObject {
                     try await pause(150)
                     try requireTargetFocus()
                     if stopRequested { break }
-                    let point = CGPoint(x: captureRect.midX, y: captureRect.midY)
+                    let point = scrollPoint ?? CGPoint(x: captureRect.midX, y: captureRect.midY)
                     CGWarpMouseCursorPosition(point)
                     guard let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
                                               wheel1: -Int32(captureRect.height * 0.45), wheel2: 0, wheel3: 0) else {
@@ -166,7 +204,7 @@ final class ScrollingCapture: ObservableObject {
                         totalHeight += delta
                         pixels = nextPixels
                     case .uncertain:
-                        warning = "Could not reliably align the next viewport. This image contains only the part captured so far. Try a selection without fixed headers, animations, or repeating/blank content."
+                        warning = "Could not reliably align the next viewport. This image contains only the part captured so far. Fixed headers, animations, or repeating/blank content may prevent reliable stitching."
                         stopRequested = true
                     }
                 }
@@ -180,12 +218,13 @@ final class ScrollingCapture: ObservableObject {
                 guard self.onSaved?(NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))) == true else {
                     throw CaptureError("Could not save the capture to history. Check your storage directory and available disk space.")
                 }
+                releaseControls()
                 alert(warning == nil ? "Scrolling capture saved" : "Partial capture saved",
                       warning ?? "Saved a \(image.width) × \(image.height) image to history and the clipboard. Scrolling stopped changing the selected area.")
             } catch is CancellationError {
                 // Cancellation deliberately leaves history and the clipboard untouched.
             } catch {
-                panel?.orderOut(nil)
+                releaseControls()
                 alert("Scrolling capture failed", error.localizedDescription)
             }
         }
@@ -196,6 +235,8 @@ final class ScrollingCapture: ObservableObject {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipmonster2-scroll-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: url) }
         let process = Process()
+        screenshotProcess = process
+        defer { screenshotProcess = nil }
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = ["-x", "-t", "png", "-R\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height))", url.path]
         process.standardOutput = FileHandle.nullDevice
@@ -232,19 +273,31 @@ final class ScrollingCapture: ObservableObject {
     private func finish() {
         panel?.orderOut(nil)
         panel = nil
-        for window in selectionWindows { window.orderOut(nil) }
-        selectionWindows.removeAll()
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        if let localEscapeMonitor { NSEvent.removeMonitor(localEscapeMonitor) }
-        escapeMonitor = nil
-        localEscapeMonitor = nil
+        releaseControls()
         if let originalPointer { CGWarpMouseCursorPosition(originalPointer) }
         originalPointer = nil
         onSaved = nil
         targetApp = nil
+        scrollPoint = nil
         task = nil
         isRunning = false
         status = ""
+    }
+
+    private func releaseControls() {
+        panel?.orderOut(nil)
+        panel = nil
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        if let localEscapeMonitor { NSEvent.removeMonitor(localEscapeMonitor) }
+        escapeMonitor = nil
+        localEscapeMonitor = nil
+        cancelHotKey?.unregister()
+        cancelHotKey = nil
+        armingTimeout?.cancel()
+        armingTimeout = nil
+        isChoosingPage = false
     }
 
     private func alert(_ title: String, _ message: String) {
@@ -268,49 +321,9 @@ private struct ScrollCaptureControls: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(capture.status).font(.caption).lineLimit(1)
             HStack {
-                Button("Stop & Save") { capture.stopAndSave() }
+                if !capture.isChoosingPage { Button("Stop & Save") { capture.stopAndSave() } }
                 Button("Cancel (Esc)") { capture.cancel() }
             }
         }.padding(12).frame(width: 286).background(Color(NSColor.windowBackgroundColor))
-    }
-}
-
-private final class CaptureSelectionView: NSView {
-    var selected: ((CGRect) -> Void)?
-    private var anchor: CGPoint?
-    private var selection = CGRect.zero
-
-    override func mouseDown(with event: NSEvent) {
-        anchor = convert(event.locationInWindow, from: nil)
-        selection = .zero
-        needsDisplay = true
-    }
-    override func mouseDragged(with event: NSEvent) {
-        guard let anchor else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        selection = CGRect(x: min(anchor.x, point.x), y: min(anchor.y, point.y),
-                           width: abs(anchor.x - point.x), height: abs(anchor.y - point.y)).intersection(bounds)
-        needsDisplay = true
-    }
-    override func mouseUp(with event: NSEvent) {
-        mouseDragged(with: event)
-        guard selection.width >= 200, selection.height >= 150 else { return }
-        selected?(selection)
-    }
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.35).setFill()
-        bounds.fill()
-        if !selection.isEmpty {
-            NSColor.white.withAlphaComponent(0.2).setFill()
-            selection.fill()
-            NSColor.systemBlue.setStroke()
-            let path = NSBezierPath(rect: selection)
-            path.lineWidth = 3
-            path.stroke()
-        }
-        let text = "Drag around the scrolling webpage content · Escape cancels"
-        (text as NSString).draw(at: CGPoint(x: 24, y: bounds.height - 50), withAttributes: [
-            .font: NSFont.boldSystemFont(ofSize: 18), .foregroundColor: NSColor.white
-        ])
     }
 }

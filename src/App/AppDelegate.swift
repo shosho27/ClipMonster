@@ -58,8 +58,12 @@ final class PathPasteHotKey {
         if let handlerRef { RemoveEventHandler(handlerRef) }
     }
     
-    private static let eventHandler: EventHandlerUPP = { _, _, userData in
-        guard let userData else { return noErr }
+    private static let eventHandler: EventHandlerUPP = { _, event, userData in
+        guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+        var id = EventHotKeyID()
+        guard GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+                                nil, MemoryLayout<EventHotKeyID>.size, nil, &id) == noErr,
+              id.signature == OSType(0x434D5048), id.id == 1 else { return OSStatus(eventNotHandledErr) }
         let manager = Unmanaged<PathPasteHotKey>.fromOpaque(userData).takeUnretainedValue()
         DispatchQueue.main.async { manager.action() }
         return noErr

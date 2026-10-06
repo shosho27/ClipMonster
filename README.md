@@ -25,7 +25,7 @@ Built as a small Swift/AppKit/SwiftUI app (no Xcode project). Compiled locally w
 | Click | Re-copy item; optional **auto-paste** (⌘V into previous app) |
 | Image preview | Larger list thumbs; **in-app overlay**; **double-click → Preview.app** |
 | Annotation | Native pen, arrow, box, and text editor; saves an annotated copy without changing the source capture |
-| Scrolling capture | Select content in an open browser; automatically scroll and stitch a tall PNG into history and the clipboard |
+| Scrolling capture | Click an open webpage; automatically detect its scrolling area and stitch a tall PNG into history and the clipboard |
 | CLI handoff | Copy an image path manually or paste the latest image path with a global shortcut |
 | Search | Filter by text, filenames, and **OCR text** |
 | Keyboard | ↑/↓, Return, **Space** (preview), Esc, **1–9** |
@@ -122,21 +122,24 @@ The original screenshot stays intact. **Save Annotated Copy** closes the editor 
 
 ## Scrolling webpage capture
 
-1. Bring the browser containing your webpage to the front and scroll to the top (or the position you want to start from).
-2. Open ClipMonster and click **Scrolling Capture**, then **Select Webpage Area**.
-3. Drag a rectangle around the scrolling page content on one display. Exclude browser toolbars, fixed/sticky headers, and scrollbars. The minimum selection is 200 × 150 points.
-4. Keep the browser focused, visible, and stationary. ClipMonster scrolls the content under the center of your selection and captures overlapping viewports. A small control panel is hidden while taking each screenshot.
-5. Capture ends after three scroll attempts no longer change the selected content. **Stop & Save** saves the captured portion at any time; **Cancel** or **Escape** discards it. A successful capture becomes one tall PNG in history and on the clipboard, with the same preview, annotation, OCR, persistence, and export behavior as other images.
+1. Scroll your webpage to the top (or the position you want to start from).
+2. Open ClipMonster and click **Scrolling Capture**. A small control panel appears; the page stays interactive.
+3. Click an empty part of the webpage you want to capture. You can choose a different browser/window after clicking the button. ClipMonster automatically detects the visible webpage or nested scrolling area under your click, excluding the browser toolbar. There is no rectangle to drag and no full-screen overlay. Avoid links/buttons because the click also goes to the webpage normally.
+4. Keep that browser focused and stationary during capture. The captured region is clipped to the window and the display containing your click. The clicked point is where automatic scroll events are directed. The control panel can be dragged and is hidden during screenshots.
+5. Capture ends after three scroll attempts no longer change the selected content. **Stop & Save** saves the captured portion; **Cancel** or **Escape** immediately releases controls and discards it. While waiting for a page click, Cancel/Escape exits and an idle session automatically cancels after 60 seconds.
+6. A successful capture becomes one tall PNG in history and on the clipboard, with the same preview, annotation, OCR, persistence, and export behavior as other images.
 
 Enable **Accessibility** and **Screen & System Audio Recording** for ClipMonster 2.0 in System Settings → Privacy & Security when prompted. Screen permission changes may require restarting ClipMonster. No browser extension, JavaScript setting, or page reload is required; screenshots capture the browser's current logged-in state.
 
-The selected area's pixels determine alignment and when scrolling has stopped; this does not inspect the browser DOM or guarantee the document bottom on blank/repeating content, nested scrollers, or pages that intercept scrolling. Choose the actual scrolling content. Fixed elements and animations can interfere with stitching. Lazy images get a settling delay, but very slow content may need a second attempt. Infinite pages are bounded at two minutes, 100 frames, 30,000 pixels tall, or 60 megapixels. Alignment failures and limits save a clearly labeled **partial capture**, instead of inventing a seam. Focus changes or capture/storage errors discard the attempt. The browser remains at its final scroll position; the mouse pointer returns to its starting position.
+The detected area's pixels determine alignment and when scrolling has stopped; this does not inspect the browser DOM or guarantee the document bottom on blank/repeating content, nested scrollers, or pages that intercept scrolling. Click inside the actual scrolling content. Fixed elements within the webpage and animations can interfere with stitching; automatic area detection does not remove sticky page headers. Lazy images get a settling delay, but very slow content may need a second attempt. Infinite pages are bounded at two minutes, 100 frames, 30,000 pixels tall, or 60 megapixels. Alignment failures and limits save a clearly labeled **partial capture**, instead of inventing a seam. Focus changes or capture/storage errors discard the attempt. The browser remains at its final scroll position; the mouse pointer returns to its starting position.
 
 Run the deterministic alignment/composition checks with:
 
 ```bash
 swiftc src/Services/ScrollCaptureStitcher.swift Tests/ScrollCaptureStitcherTests.swift -o /tmp/clipmonster-scroll-tests
 /tmp/clipmonster-scroll-tests
+swiftc src/Services/CapturePageTarget.swift src/Services/CaptureEscapeHotKey.swift src/Services/ScrollCaptureStitcher.swift src/Services/ScrollingCapture.swift Tests/CapturePageTargetTests.swift -o /tmp/clipmonster-page-tests
+/tmp/clipmonster-page-tests
 ```
 
 ---
