@@ -29,18 +29,46 @@ enum CapturePageTarget {
               var element = hit else { return nil }
         var regions = [Region]()
         var windowFrame: CGRect?
+        var foundWebPage = false
         for _ in 0..<24 {
             AXUIElementSetMessagingTimeout(element, 0.25)
-            if let role = attribute(element, kAXRoleAttribute) as? String, let frame = frame(element) {
-                regions.append(Region(role: role, frame: frame))
-                if role == kAXWindowRole { windowFrame = frame; break }
+            if let role = attribute(element, kAXRoleAttribute) as? String {
+                if role == "AXWebArea" { foundWebPage = true }
+                // Chrome hit-tests blank page space to the enclosing scroll
+                // area. Its WebArea is a child, rather than an ancestor.
+                if role == kAXScrollAreaRole, !foundWebPage {
+                    foundWebPage = containsWebPage(element)
+                }
+                if let frame = frame(element) {
+                    regions.append(Region(role: role, frame: frame))
+                    if role == kAXWindowRole { windowFrame = frame; break }
+                }
             }
             guard let parent = attribute(element, kAXParentAttribute),
                   CFGetTypeID(parent) == AXUIElementGetTypeID() else { break }
             element = unsafeBitCast(parent, to: AXUIElement.self)
         }
-        guard regions.contains(where: { $0.role == "AXWebArea" }), let windowFrame else { return nil }
+        guard foundWebPage, let windowFrame else { return nil }
         return visibleFrame(ancestors: regions, window: windowFrame, screens: screens, point: point)
+    }
+
+    private static func containsWebPage(_ root: AXUIElement) -> Bool {
+        var queue = [root]
+        var index = 0
+        while index < queue.count, index < 128 {
+            let element = queue[index]
+            index += 1
+            AXUIElementSetMessagingTimeout(element, 0.1)
+            if attribute(element, kAXRoleAttribute) as? String == "AXWebArea" { return true }
+            // Bound the number fetched as well as the number traversed, so a
+            // long webpage cannot allocate an unbounded Accessibility tree.
+            var children: CFArray?
+            if AXUIElementCopyAttributeValues(element, kAXChildrenAttribute as CFString, 0, 32, &children) == .success,
+               let elements = children as? [AXUIElement] {
+                queue.append(contentsOf: elements.prefix(max(0, 128 - queue.count)))
+            }
+        }
+        return false
     }
 
     private static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {

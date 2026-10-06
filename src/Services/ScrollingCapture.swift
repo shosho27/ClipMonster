@@ -59,8 +59,8 @@ final class ScrollingCapture: ObservableObject {
             showControls(at: CGRect(x: screen.visibleFrame.maxX - 350, y: screen.visibleFrame.maxY - 130, width: 340, height: 110))
         }
         // Observe the ordinary click; no screen-covering window intercepts it.
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            let point = CGEvent(source: nil)?.location ?? .zero
+        clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            let point = event.cgEvent?.location ?? CGEvent(source: nil)?.location ?? .zero
             Task { @MainActor in self?.choosePage(at: point) }
         }
         target?.activate(options: [])
@@ -95,9 +95,17 @@ final class ScrollingCapture: ObservableObject {
         let pid = app.processIdentifier
         status = "Finding webpage content… · Esc cancels"
         selectionTask = Task { [weak self] in
-            let frame = await Task.detached(priority: .userInitiated) {
+            var frame = await Task.detached(priority: .userInitiated) {
                 CapturePageTarget.resolve(point: point, pid: pid, screens: screens)
             }.value
+            // Chromium may populate its accessibility tree asynchronously on
+            // the first lookup. Retry the same click once, without blocking UI.
+            if frame == nil, !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 400_000_000) } catch { return }
+                frame = await Task.detached(priority: .userInitiated) {
+                    CapturePageTarget.resolve(point: point, pid: pid, screens: screens)
+                }.value
+            }
             guard let self, !Task.isCancelled, isChoosingPage else { return }
             selectionTask = nil
             guard let frame else {

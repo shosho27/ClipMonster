@@ -59,5 +59,15 @@ enum CapturePageTargetTests {
             print("SKIP: native arm/cancel lifecycle requires existing Accessibility and Screen Recording grants")
         }
         print("PASS: viewport clipping, nested scrollers, toolbar rejection, document-height fallback, and secondary displays")
+        if CommandLine.arguments.contains("--chrome-at-pointer") {
+            guard let chrome = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.google.Chrome" }),
+                  let point = CGEvent(source: nil)?.location else { preconditionFailure("Open Chrome with the pointer inside page content") }
+            let top = NSScreen.screens.first!.frame.maxY
+            let displays = NSScreen.screens.map { CGRect(x: $0.frame.minX, y: top - $0.frame.maxY, width: $0.frame.width, height: $0.frame.height) }
+            let viewport = CapturePageTarget.resolve(point: point, pid: chrome.processIdentifier, screens: displays)
+            precondition(viewport != nil, "Chrome page click was rejected")
+            precondition(viewport!.contains(point))
+            print("PASS: real Chrome page hit testing at the pointer")
+        }
     }
 }

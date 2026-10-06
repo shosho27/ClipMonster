@@ -1,5 +1,11 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-06 — Chrome blank-page click detection
+
+- Actual Chrome hit testing returned `AXScrollArea` for blank webpage space, with the `AXWebArea` underneath it as a child. The ancestor-only page check rejected that valid click.
+- Resolve webpage identity through a bounded descendant search on scrolling containers as well as the parent chain. Browser toolbar/tab-strip containers still need a WebArea to qualify. Keep lookups off the UI thread with per-element messaging timeouts.
+- Verified the real Chrome blank-page hit resolves the visible viewport. Added an opt-in `--chrome-at-pointer` integration check to the page-target test executable.
+
 ## 2026-10-06 — click-to-select capture and cancellation fix
 
 - Removed the screen-covering rectangle selector, which could trap input without a key window. Scrolling Capture now arms a global mouse-up observer; the next ordinary click inside a webpage identifies the browser and its nearest visible scroll area through Accessibility. Toolbars are rejected, document dimensions are clipped to window/screen bounds, and nested scroll areas are preferred.
