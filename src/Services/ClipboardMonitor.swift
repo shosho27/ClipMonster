@@ -266,34 +266,65 @@ class ClipboardMonitor: ObservableObject {
 
     /// Put this image's filesystem path on the clipboard for Terminal and other
     /// text-only applications. A temporary PNG is used when persistence is off.
+    /// `shellQuoted` wraps paths that a shell would split (spaces and the like).
     @discardableResult
-    func copyImagePath(_ item: ClipboardItem) -> Bool {
+    func copyImagePath(_ item: ClipboardItem, shellQuoted: Bool = false) -> Bool {
         guard let url = fileURLForImagePreview(item: item) else { return false }
+        let path = shellQuoted ? Self.shellQuoted(url.path) : url.path
+        return writePlainString(path)
+    }
+
+    /// Quote a path for a shell only when it contains characters the shell would
+    /// otherwise split or expand. Ordinary paths stay unchanged.
+    static func shellQuoted(_ path: String) -> String {
+        let safe = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./~-")
+        if path.unicodeScalars.allSatisfy({ safe.contains($0) }) {
+            return path
+        }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// Replace the pasteboard with a single plain string and read it back so
+    /// Terminal does not still see the screenshot that was there a moment ago.
+    @discardableResult
+    private func writePlainString(_ value: String) -> Bool {
         pasteboard.clearContents()
-        pasteboard.setString(url.path, forType: .string)
+        guard pasteboard.setString(value, forType: .string) else { return false }
+        _ = pasteboard.string(forType: .string)
         lastChangeCount = pasteboard.changeCount
         return true
+    }
+
+    /// Terminal cannot paste a picture. If the clipboard is an image and has no
+    /// text, replace it with that image's shell path.
+    @discardableResult
+    func replaceCurrentImageWithShellPath() -> Bool {
+        let types = pasteboard.types ?? []
+        let hasImage = types.contains(.png) || types.contains(.tiff)
+        guard hasImage else { return false }
+        if let text = pasteboard.string(forType: .string), !text.isEmpty { return false }
+        return copyLatestImagePathToClipboard(shellQuoted: true)
     }
 
     /// This reads a just-taken screenshot directly from the pasteboard as a
     /// fallback, so the shortcut does not need to wait for the 0.5-second poll.
     @discardableResult
-    func copyLatestImagePathToClipboard() -> Bool {
+    func copyLatestImagePathToClipboard(shellQuoted: Bool = false) -> Bool {
         if pasteboard.changeCount != lastChangeCount,
            let captured = ImageStore.pngFromPasteboard(pasteboard) {
             let hash = ImageStore.hashPNG(captured.data)
             if let existing = history.first(where: { $0.imageHash == hash }) {
                 lastChangeCount = pasteboard.changeCount
-                return copyImagePath(existing)
+                return copyImagePath(existing, shellQuoted: shellQuoted)
             }
             if let item = makeImageItem(id: UUID(), png: captured.data, pixelWidth: captured.pixelWidth, pixelHeight: captured.pixelHeight) {
                 insertItem(item)
                 lastChangeCount = pasteboard.changeCount
-                return copyImagePath(item)
+                return copyImagePath(item, shellQuoted: shellQuoted)
             }
         }
         guard let latestImage = history.first(where: { $0.hasImage }) else { return false }
-        return copyImagePath(latestImage)
+        return copyImagePath(latestImage, shellQuoted: shellQuoted)
     }
     
     private func fileURLForImagePreview(item: ClipboardItem) -> URL? {
@@ -308,8 +339,27 @@ class ClipboardMonitor: ObservableObject {
         else { selectedItems.insert(item.id) }
     }
     
-    func copySelected() {
+    func copySelected(shellQuoted: Bool = false) {
         let itemsToCopy = history.filter { selectedItems.contains($0.id) }.reversed()
+        if shellQuoted {
+            var parts: [String] = []
+            for item in itemsToCopy {
+                if let txt = item.text {
+                    parts.append(txt)
+                } else if let url = fileURLForImagePreview(item: item) {
+                    parts.append(Self.shellQuoted(url.path))
+                } else if let url = item.resolvedFileURL() {
+                    parts.append(Self.shellQuoted(url.path))
+                }
+            }
+            if parts.isEmpty {
+                selectedItems.removeAll()
+                return
+            }
+            _ = writePlainString(parts.joined(separator: " "))
+            selectedItems.removeAll()
+            return
+        }
         pasteboard.clearContents()
         
         var objectsToWrite: [NSPasteboardWriting] = []

@@ -23,6 +23,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         registerHotKeys()
         DragTempCleanup.run()
+        #if !MAS
+        TerminalPasteTap.install(monitor: clipboardMonitor)
+        #endif
 
         NotificationCenter.default.addObserver(forName: NSNotification.Name("ShortcutChanged"), object: nil, queue: .main) { [weak self] _ in
             self?.registerHotKeys()
@@ -135,14 +138,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    var lastFrontmostIsTerminal: Bool { FrontApp.isTerminal(lastFrontmostApp) }
+
     /// Restore the previous app after a copy. Direct builds can also type ⌘V.
     func autoPasteIntoPreviousApp() {
         popover.performClose(nil)
-        lastFrontmostApp?.activate()
+        let target = lastFrontmostApp
+        focus(target)
         #if !MAS
         guard Distribution.supportsAutoPaste else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            Self.simulateCommandV()
+        if FrontApp.isTerminal(target) {
+            Self.pasteCommandVIntoTerminal()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                Self.simulateCommandV()
+            }
         }
         #endif
     }
@@ -150,11 +160,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Copy the newest captured image's path. Direct builds paste it into the
     /// focused app; the Store edition leaves it on the clipboard.
     func pasteLatestImagePathIntoFrontmostApp() {
-        guard clipboardMonitor.copyLatestImagePathToClipboard() else { return }
+        let front = NSWorkspace.shared.frontmostApplication
+        let terminal = FrontApp.isTerminal(front)
+        guard clipboardMonitor.copyLatestImagePathToClipboard(shellQuoted: terminal) else { return }
         #if !MAS
         guard Distribution.supportsAutoPaste else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            Self.simulateCommandV()
+        if terminal {
+            Self.pasteCommandVIntoTerminal()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                Self.simulateCommandV()
+            }
         }
         #endif
     }
@@ -162,10 +178,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Close the popover and give focus back so the user can press ⌘V.
     func handFocusBackAfterCopy() {
         popover.performClose(nil)
-        lastFrontmostApp?.activate()
+        focus(lastFrontmostApp)
+    }
+
+    /// Terminal ignores a plain `activate()` from a menu-bar app, so ⌘V never
+    /// reaches it. Yield first, then ask Terminal to take activation from us.
+    private func focus(_ app: NSRunningApplication?) {
+        guard let app else { return }
+        if FrontApp.isTerminal(app) {
+            NSApp.yieldActivation(to: app)
+            _ = app.activate(from: .current, options: [])
+        } else {
+            app.activate()
+        }
     }
 
     #if !MAS
+    /// Terminal ignores a ⌘V posted on the HID tap, and it ignores one that
+    /// arrives while the path shortcut's modifiers are still held. Wait those
+    /// out, then post ⌘V on the session tap with the left-command flag set.
+    static func pasteCommandVIntoTerminal() {
+        func tick(focusWaits: Int, modifierWaits: Int) {
+            let focused = FrontApp.isTerminal(NSWorkspace.shared.frontmostApplication)
+            let mods = CGEventSource.flagsState(.hidSystemState)
+            let held = !mods.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl]).isEmpty
+            if (focused || focusWaits >= 15) && (!held || modifierWaits >= 20) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    insertClipboardTextIntoTerminal()
+                }
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+                tick(
+                    focusWaits: focusWaits + (focused ? 0 : 1),
+                    modifierWaits: modifierWaits + (held ? 1 : 0)
+                )
+            }
+        }
+        tick(focusWaits: 0, modifierWaits: 0)
+    }
+
     static func simulateCommandV() {
         let source = CGEventSource(stateID: .hidSystemState)
         let keyV: CGKeyCode = 9
@@ -176,7 +228,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)
     }
+
+    /// Session-tap ⌘V with the left-command device flag. Terminal drops the
+    /// HID-tap event that other apps accept.
+    static func insertClipboardTextIntoTerminal() {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              FrontApp.isTerminal(app) else { return }
+        let source = CGEventSource(stateID: .combinedSessionState)
+        source?.localEventsSuppressionInterval = 0
+        source?.setLocalEventsFilterDuringSuppressionState(
+            [.permitLocalMouseEvents, .permitSystemDefinedEvents],
+            state: .eventSuppressionStateSuppressionInterval
+        )
+        let keyV: CGKeyCode = 9
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: keyV, keyDown: false) else { return }
+        let flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x000008)
+        down.flags = flags
+        up.flags = flags
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+    }
     #endif
+}
+
+/// Apps that cannot insert an image from the pasteboard. A screenshot has to
+/// arrive as a filesystem path or the paste looks like it did nothing.
+enum FrontApp {
+    static func isTerminal(_ app: NSRunningApplication?) -> Bool {
+        guard let app else { return false }
+        if app.bundleIdentifier == "com.apple.Terminal" { return true }
+        return app.localizedName == "Terminal"
+    }
 }
 
 extension Notification.Name {

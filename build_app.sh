@@ -86,8 +86,14 @@ if [ "$MAS_BUILD" -eq 1 ]; then
     echo "Sandboxed signature:"
     codesign -d --entitlements - "${APP_BUNDLE}" 2>&1 | head -20
 else
-    echo "Ad-hoc signing (direct edition)..."
-    codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_BUNDLE}" || true
+    DEV_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Apple Development:[^"]*\)"/\1/p' | head -1)
+    if [ -n "${DEV_IDENTITY}" ]; then
+        echo "Signing with ${DEV_IDENTITY} so Accessibility survives rebuilds..."
+        codesign --force --deep --sign "${DEV_IDENTITY}" --identifier "${BUNDLE_ID}" "${APP_BUNDLE}"
+    else
+        echo "Ad-hoc signing (direct edition)..."
+        codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${APP_BUNDLE}" || true
+    fi
 fi
 
 echo "Packaging App for Team Sharing..."

@@ -33,7 +33,7 @@ struct PreferencesView: View {
                 if Distribution.supportsAutoPaste {
                     prefSection("Paste") {
                         Toggle("Auto-paste into previous app", isOn: $monitor.autoPaste)
-                        Text("After you pick an item, simulates ⌘V. Needs Accessibility.")
+                        Text("After you pick an item, simulates ⌘V. Needs Accessibility. Terminal receives a screenshot as its file path, because it cannot paste an image.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

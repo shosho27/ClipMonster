@@ -86,7 +86,7 @@ struct ContentView: View {
                             if !monitor.selectedItems.isEmpty {
                                 Divider()
                                 Button(action: {
-                                    monitor.copySelected()
+                                    monitor.copySelected(shellQuoted: appDelegate?.lastFrontmostIsTerminal == true)
                                     finishCopy()
                                 }) {
                                     Text("Apply & Copy \(monitor.selectedItems.count) Items")
@@ -203,6 +203,11 @@ struct ContentView: View {
     private func activate(_ item: ClipboardItem) {
         if NSEvent.modifierFlags.contains(.shift) {
             monitor.toggleSelection(for: item)
+            return
+        }
+        let terminal = appDelegate?.lastFrontmostIsTerminal == true
+        if terminal, item.hasImage, monitor.copyImagePath(item, shellQuoted: true) {
+            finishCopy()
             return
         }
         monitor.copyToClipboard(item: item)
