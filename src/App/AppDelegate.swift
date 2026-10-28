@@ -175,6 +175,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    /// Launches macOS's interactive screenshot tool with its output sent
+    /// straight to the clipboard (`screencapture -i -c`) — the same result as
+    /// pressing ⌘⌃⇧4, for people who don't know that shortcut exists. The
+    /// clipboard watcher picks the capture up automatically once the user
+    /// finishes selecting, same as any other copy. Not available in the
+    /// sandboxed Store build, which can't launch helper processes.
+    func captureScreenshotToClipboard() {
+        guard Distribution.supportsScreenshotCapture else { return }
+        popover.performClose(nil)
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        task.arguments = ["-i", "-c"]
+        do {
+            try task.run()
+        } catch {
+            NSLog("ClipMonster: failed to launch screencapture: \(error)")
+        }
+    }
+
     /// Close the popover and give focus back so the user can press ⌘V.
     func handFocusBackAfterCopy() {
         popover.performClose(nil)

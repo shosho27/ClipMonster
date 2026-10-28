@@ -1,5 +1,12 @@
 # Work Log: ClipMonster 2.0
 
+## 2026-10-28 — One-click screenshot button
+
+- Added a header button (camera-viewfinder icon, labeled "Shortcut ⌘⇧4") that launches `screencapture -i -c` directly — same result as the clipboard-output screenshot shortcut, for people who don't use keyboard shortcuts. The capture lands in history through the existing `NSPasteboard` watcher, no new import path needed.
+- `Distribution.supportsScreenshotCapture` (same `!macAppStoreBuild && !isSandboxed` pattern as `supportsAutoPaste`) hides the button in the sandboxed Store build, which can't launch `/usr/sbin/screencapture` as a helper process. Verified both `./build_app.sh` (Direct) and `./build_app.sh mas` (Store) compile clean with the button present/absent respectively.
+- Several rounds of UI iteration on the label: moved from the end of the header to right after the title, enlarged the icon relative to pause/trash/gear, tried showing the full modifier combo (⌘⌃⇧4) before settling on the simpler ⌘⇧4 the user actually associates with "take a screenshot," and shortened "Shortcut Keys" to "Shortcut" at a smaller size after it was wrapping to two lines in the popover's available width.
+- `shosho27/ClipMonster` made public on GitHub (2026-10-28), after a full secrets/credentials scan across all tracked files and the complete git history on every branch — came back clean. `master` (the original single-file app) is the public default branch; this 2.0 working copy still lives on `agent/clipmonster-2-annotation-editor`, unmerged.
+
 ## 2026-09-21 — App Store upload deferred to home account
 
 - Direct edition reinstall on this laptop verified: process from `dist/ClipMonster 2.0.app`, version 2.0.0 (200), history restored from `~/Documents/clipmonster` (50-item cap), live capture works, Accessibility allowed for `com.sashornock.ClipMonster2`, welcome already dismissed. Duplicate Background Items rows (`ClipMonster 2.0` and `ClipMonster 2.0 2`) remain for the same `dist` URL.

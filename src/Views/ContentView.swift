@@ -19,6 +19,24 @@ struct ContentView: View {
                 // Fixed header — always visible
                 HStack {
                     Text(showPreferences ? "Preferences" : "ClipMonster 2.0").font(.headline)
+                    if !showPreferences && Distribution.supportsScreenshotCapture {
+                        Spacer().frame(width: 10)
+                        Button(action: { appDelegate?.captureScreenshotToClipboard() }) {
+                            HStack(alignment: .center, spacing: 6) {
+                                Text("Shortcut")
+                                    .font(.caption.weight(.bold))
+                                    .lineLimit(1)
+                                Text("⌘ ⇧ 4")
+                                    .font(.callout)
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "camera.viewfinder")
+                                    .font(.title2)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Take a screenshot — it'll appear in your history")
+                        .accessibilityLabel("Take a screenshot, shortcut Command Shift 4")
+                    }
                     Spacer()
                     if !showPreferences {
                         Button(action: { monitor.capturePaused.toggle() }) {

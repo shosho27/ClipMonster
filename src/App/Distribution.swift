@@ -23,6 +23,12 @@ enum Distribution {
         !macAppStoreBuild && !isSandboxed
     }
 
+    /// The one-click screenshot button shells out to /usr/sbin/screencapture,
+    /// which the sandboxed Store build cannot launch as a helper process.
+    static var supportsScreenshotCapture: Bool {
+        !macAppStoreBuild && !isSandboxed
+    }
+
     static var versionString: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0"
     }

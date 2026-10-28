@@ -63,6 +63,7 @@ Shipped in this working copy:
 - [x] First-launch welcome window for the menu-bar-only app
 - [x] Pause capture, purge confirmation, in-app privacy policy
 - [x] Concealed / transient / auto-generated pasteboard skip + known password managers
+- [x] One-click screenshot button (`screencapture -i -c`) in the header, Direct edition only
 
 Still open:
 

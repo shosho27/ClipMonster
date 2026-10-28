@@ -32,6 +32,7 @@ Built as a small Swift/AppKit/SwiftUI app. Local and direct-distribution builds 
 | OCR | On-device **Apple Vision** — per-image button or auto-OCR |
 | De-dupe | Images by content hash; text/files by value |
 | Multi-select | Shift-click → “Apply & Copy N Items” |
+| One-click screenshot | Header button launches `screencapture -i -c` (same as ⌘⇧4, clipboard output) for people who don't use the keyboard shortcut — the capture lands in history automatically. Direct edition only; hidden in the sandboxed Store build, which can't launch helper processes |
 | Shortcut | Customizable Carbon system hotkeys (default **Control–Option–V** to open; **Command–Option–Shift–V** for the latest image path) |
 | Startup | Optional **start at login** (`SMAppService`; LaunchAgent fallback in the Direct edition only) |
 | Persistence | Optional history across reboots + movable custom storage directory (security-scoped bookmark when sandboxed) |
